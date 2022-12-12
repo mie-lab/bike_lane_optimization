@@ -2,12 +2,12 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 import networkx as nx
 import numpy as np
-import pandas as pd
-from collections import defaultdict
+import seaborn as sns
+import os
 
 
 def visualize_graph(G):
-    pos = nx.spring_layout(G, seed=seed)
+    pos = nx.spring_layout(G, seed=42)
     node_sizes = [3 + 10 * i for i in range(len(G))]
     M = G.number_of_edges()
     edge_colors = range(2, M + 2)
@@ -61,3 +61,19 @@ def plot_graph(G, directed=True, hw=0.05, weight="weight"):
     plt.colorbar()
     plt.axis("off")
     plt.show()
+
+
+def scatter_car_bike(res, metrics_for_eval, out_path=None):
+    fill_functions = [lambda x: 0, lambda x: max(x) + np.std(x), lambda x: 0]
+    for metric, fill_func in zip(metrics_for_eval, fill_functions):
+        bike_metric, car_metric = "bike_" + metric, "car_" + metric
+        fill_val = fill_func(res[bike_metric].dropna().values)
+        res[bike_metric] = res[bike_metric].fillna(fill_val)
+        res[car_metric] = res[car_metric].fillna(fill_val)
+        plt.figure(figsize=(7, 5))
+        sns.scatterplot(data=res, x="bike_" + metric, y="car_" + metric, hue="Method", s=100)
+        plt.legend(title="Method")
+        if out_path is None:
+            plt.show()
+        else:
+            plt.savefig(os.path.join(out_path, metric + "_scatter.png"))

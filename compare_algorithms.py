@@ -1,4 +1,5 @@
 import os
+import pandas as pd
 from ebike_city_tools.iterative_algorithms import *
 from ebike_city_tools.random_graph import *
 from ebike_city_tools.visualize import *
@@ -61,3 +62,6 @@ df = df.drop("run", axis=1).groupby("Method").mean().sort_values(["car_closeness
 
 # Save results
 df.to_csv(os.path.join(OUT_PATH, "algo_comp.csv"))
+
+# Plotting
+scatter_car_bike(df, metrics_for_eval, OUT_PATH)

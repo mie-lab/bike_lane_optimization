@@ -12,7 +12,7 @@ __pycache__/
 # Distribution / packaging
 .Python
 *code-workspace
-.DStore
+.DS_Store
 build/
 develop-eggs/
 dist/
