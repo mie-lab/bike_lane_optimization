@@ -131,7 +131,7 @@ def greedy_betweenness(base_graph_inp):
     # init is_fixed
     is_fixed = {edge: False for edge in base_graph.edges}
     iters, edges_removed = 0, 0
-    max_iters = 500
+    max_iters = base_graph.number_of_edges() * 10
     bike_edges = []
     half_edges = int(0.5 * base_graph.number_of_edges())
     while iters < max_iters:

@@ -1,3 +1,4 @@
+import time
 import os
 import pandas as pd
 from ebike_city_tools.iterative_algorithms import *
@@ -24,7 +25,7 @@ bike_car_metrics = ["bike_" + m for m in metrics_for_eval] + ["car_" + m for m i
 all_results = []
 for i in range(ITERS_TEST):
     # collect results in a dataframe
-    df = pd.DataFrame(index=list(algorithm_dict.keys()) + ["original"], columns=bike_car_metrics)
+    df = pd.DataFrame(index=list(algorithm_dict.keys()) + ["original"], columns=bike_car_metrics + ["runtime"])
 
     # generate a random (street-network realistic) graph
     base_graph = base_graph_doppelspur()  # generate_base_graph()
@@ -32,6 +33,7 @@ for i in range(ITERS_TEST):
     # Run all algorithms on this base graph and generate bike and car graph
     for algorithm in algorithm_dict.keys():
         # either the algorithm does bike and car lane graph extraction at the same time
+        tic = time.time()
         if "bike_and_car" in algorithm_dict[algorithm]:
             bike_and_car_algo = algorithm_dict[algorithm]["bike_and_car"]
             bike_graph, car_graph = bike_and_car_algo(base_graph)
@@ -41,14 +43,17 @@ for i in range(ITERS_TEST):
             bike_graph, leftover_car_graph = bike_algo(base_graph)
             car_algo = algorithm_dict[algorithm]["car"]
             car_graph = car_algo(leftover_car_graph)
+        runtime = time.time() - tic
 
         # Compute all metrics for both bike- and car lane graph
         for graph_name, graph_to_eval in zip(["bike", "car"], [bike_graph, car_graph]):
             for metric in metrics_for_eval:
                 df.loc[algorithm, graph_name + "_" + metric] = eval(metric)(graph_to_eval)
+            df.loc[algorithm, "runtime"] = runtime
         # add metrics for original graph (pretending that we did not subtract any car lanes)
         for metric in metrics_for_eval:
             df.loc["original", "car_" + metric] = eval(metric)(base_graph)
+            df.loc["original", "runtime"] = 0
             # df.loc["original", "bike_" + metric] = 0 # could fill with 0 for some metrics and inf for others
 
     df.index.name = "Method"
