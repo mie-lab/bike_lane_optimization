@@ -158,7 +158,8 @@ def greedy_betweenness(base_graph_inp):
         iters += 1
 
     bike_graph = nx.MultiGraph()
-    bike_graph.add_edges_from(bike_edges)
+    multi_bike_edge_list = [[e[0], e[1], i, {}] for i, e in enumerate(bike_edges)]
+    bike_graph.add_edges_from(multi_bike_edge_list)
     nx.set_node_attributes(bike_graph, node_attributes, name="loc")
 
     # print("is fixed", sum(is_fixed.values()))
@@ -166,3 +167,26 @@ def greedy_betweenness(base_graph_inp):
     # print(len(base_graph.edges()), len(base_graph_inp.edges()), nx.is_strongly_connected(base_graph))
 
     return bike_graph, base_graph
+
+
+def optimized_betweenness(base_graph_inp, nr_iters=1000):
+    from ebike_city_tools.rl_env import StreetNetworkEnv
+
+    _, car_graph = greedy_betweenness(base_graph_inp)
+    env = StreetNetworkEnv(base_graph_inp)
+    env.derive_initial_setting(car_graph)
+    env.reset()
+    # print("start_reward", env.last_reward)
+    prev_reward = env.last_reward
+    for _ in range(nr_iters):
+        act_avail = env.get_available_actions()
+        #     action = np.random.randint(env.n_actions)
+        action = np.random.choice(act_avail)
+        rew = env.step(action)
+        # revert action if it didn't help
+        if rew < prev_reward:
+            rew = env.revert_action(action)
+            # assert rew >= prev_reward
+        prev_reward = rew
+    # print("final reward", rew)
+    return env.bike_graph, env.car_graph

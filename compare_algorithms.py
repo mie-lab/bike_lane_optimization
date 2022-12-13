@@ -12,11 +12,12 @@ os.makedirs(OUT_PATH, exist_ok=True)
 
 # All algorithms that we test
 algorithm_dict = {
-    "spanning_random": {"bike": extract_spanning_tree, "car": random_edge_order},
+    # "spanning_random": {"bike": extract_spanning_tree, "car": random_edge_order},
     "full_random": {"bike": extract_oneway_subnet, "car": random_edge_order},
-    "spanning_balanced": {"bike": extract_spanning_tree, "car": greedy_nodes_balanced},
+    # "spanning_balanced": {"bike": extract_spanning_tree, "car": greedy_nodes_balanced},
     "full_balanced": {"bike": extract_oneway_subnet, "car": greedy_nodes_balanced},
     "betweenness": {"bike_and_car": greedy_betweenness},
+    "optim_betweenness": {"bike_and_car": optimized_betweenness},
 }
 # metrics to evaluate
 metrics_for_eval = ["sp_reachability", "sp_length", "closeness"]
