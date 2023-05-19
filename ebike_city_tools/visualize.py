@@ -77,3 +77,45 @@ def scatter_car_bike(res, metrics_for_eval, out_path=None):
             plt.show()
         else:
             plt.savefig(os.path.join(out_path, metric + "_scatter.png"))
+
+
+def pareto_plot_sp(res, out_path):
+    """Plot with dotted lines for the extreme cases and scatter points otherwise"""
+
+    car_optim = res.set_index("Method").loc["original", "car_sp_length"]
+    bike_optim = res.set_index("Method").loc["full_random", "bike_sp_length"]
+
+    res = res[~res["Method"].isin(["original", "full_random"])]
+
+    method_mapping = {
+        "full_random": "One bi-directional bike lane per street",
+        "spanning_random": "Minimal spanning tree forms bike network",
+        "betweenness": "Bike lanes found by minimum betweenness centrality [1]",
+        "optim_betweenness": "Randomly swap edges to improve [1]",
+        "original": "No bike lanes (original car network)"
+    }
+    res["Method"] = res["Method"].map(method_mapping)
+    # sort
+    res = res.set_index(["Method"]).loc[
+        [
+            'Minimal spanning tree forms bike network',
+            'Bike lanes found by minimum betweenness centrality [1]',
+            'Randomly swap edges to improve [1]'
+        ]
+    ].reset_index()
+
+    metric = "sp_length"
+    xlim = 6.4
+    ylim = 4.5
+    plt.figure(figsize=(14, 5))
+    sns.scatterplot(data=res, x="bike_" + metric, y="car_" + metric, hue="Method", s=100, palette="Set2")
+    plt.plot([0, xlim], [car_optim, car_optim], label=method_mapping["original"], linestyle="--", color="red")
+    plt.plot([bike_optim, bike_optim], [0, ylim], label=method_mapping["full_random"], linestyle="--", color="green")
+    plt.legend(title="Method", bbox_to_anchor=(1,0.8))
+    plt.ylabel("Avg. shortest path length (CAR)")
+    plt.xlabel("Avg. shortest path length (BIKE)")
+    plt.xlim(0, xlim)
+    plt.ylim(0, ylim)
+    plt.tight_layout()
+    plt.savefig(os.path.join(out_path, "pareto_sp.jpg"))
+    plt.show()

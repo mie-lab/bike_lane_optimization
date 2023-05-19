@@ -31,10 +31,10 @@ setup(
     classifiers=[
         "License :: OSI Approved :: MIT",
         "Intended Audience :: Science/Research",
-        "Programming Language :: Python :: 3.6",
+        "Programming Language :: Python :: 3.9",
         "Topic :: Software Development :: Libraries :: Python Modules",
     ],
     packages=find_packages("."),
-    python_requires=">=3.6",
+    python_requires=">=3.9",
     scripts=scripts,
 )
