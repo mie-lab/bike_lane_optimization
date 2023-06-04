@@ -1,5 +1,6 @@
 import networkx as nx
 import numpy as np
+import random
 
 
 def generate_base_graph(n=20, min_neighbors=2):
@@ -56,12 +57,13 @@ def base_graph_doppelspur(n=20, min_neighbors=2):
         sampled_neighbors = np.random.choice(node_inds, p=neighbor_probs, replace=False, size=nr_neighbors)
         for neigh in sampled_neighbors:
             dist = neighbor_distances[neigh]
-            edge_list.append([i, neigh, {"weight": np.random.rand(), "distance": dist}])
-            edge_list.append([neigh, i, {"weight": np.random.rand(), "distance": dist}])
+            length = dist * np.random.uniform(1, 2)
+            edge_list.append([i, neigh, {"weight": np.random.rand(), "length": length}])
+            edge_list.append([neigh, i, {"weight": np.random.rand(), "length": length}])
     G.add_edges_from(edge_list)
 
     # set attributes
-    attrs = {i: {"loc": coords[i]} for i in range(n)}
+    attrs = {i: {"loc": coords[i], 'elevation': random.random()} for i in range(n)}
     nx.set_node_attributes(G, attrs)
 
     return nx.MultiDiGraph(G)
