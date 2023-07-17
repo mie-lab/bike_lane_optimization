@@ -26,7 +26,8 @@ setup(
         "scipy",
         "networkx",
         "matplotlib",
-        "seaborn"
+        "seaborn",
+        "rdflib"
     ],
     classifiers=[
         "License :: OSI Approved :: MIT",
