@@ -1,22 +1,25 @@
 import pandas as pd
-from rdflib import Dataset, Literal, URIRef, XSD, RDF
+from rdflib import Dataset, Literal, URIRef, XSD, RDF, RDFS
 import uuid
 import onto_manager as OM
 
 EVALUATION_METRIC = 'EvaluationMetric'
+METRIC_TYPE = 'MetricType'
 EVALUATION_METHOD = 'EvaluationMethod'
 EVALUATION_CRITERIA = 'EvaluationCriteria'
 RESOLUTION_FEATURE = 'ResolutionFeature'
 WEIGHTING_SYSTEM = 'WeightingSystem'
-EVALUATION_SCALE = 'EvaluationScale'
+SCORING_SYSTEM = 'ScoringSystem'
 MEASURING_MODE = 'MeasuringMode'
-DATA_SOURCE = 'DataSource'
+DESCRIPTION = 'Description'
 UNIT = 'Unit'
+UNIT_TYPE = 'UnitType'
 PARTS = 'Parts'
 FUNCTION = 'Function'
 BUFFER = 'Buffer'
-UNIT_TYPE = 'UnitType'
+BUFFER_UNIT = 'BufferUnit'
 WEIGHT = 'Weight'
+COMMENT = 'Comment'
 
 class TripleDataset:
 
@@ -45,26 +48,30 @@ class TripleDataset:
             self.dataset.add((metric_uri, OM.MEASURED_WITH, measuring_mode, OM.NEMO_GRAPH))
             self.dataset.add((method_uri, RDF.type, OM.EVALUATION_METHOD, OM.NEMO_GRAPH))
 
-            if not pd.isnull(metrics.loc[metric, DATA_SOURCE]):
-                self.dataset.add((metric_uri, OM.HAS_DATA_SOURCE, URIRef(metrics.loc[metric, DATA_SOURCE])))
+            if not pd.isnull(metrics.loc[metric, COMMENT]):
+                self.dataset.add((metric_uri, RDFS.comment, Literal(str(metrics.loc[metric, COMMENT]), datatype=XSD.string)))
+            if not pd.isnull(metrics.loc[metric, METRIC_TYPE]):
+                general_metric_type = URIRef(OM.PREFIX_NEMO + metrics.loc[metric, METRIC_TYPE])
+                self.dataset.add((measure_uri, RDF.type, general_metric_type, OM.NEMO_GRAPH))
             if not pd.isnull(metrics.loc[metric, WEIGHTING_SYSTEM]):
                 self.create_weighting_system_triples(metrics.loc[metric, WEIGHTING_SYSTEM], method_uri)
             if not pd.isnull(metrics.loc[metric, WEIGHT]):
                 self.create_weight_triples(metrics.loc[metric, WEIGHT], metric_uri)
-            if not pd.isnull(metrics.loc[metric, EVALUATION_SCALE]):
-                self.create_evaluation_scale_triples(metrics.loc[metric, EVALUATION_SCALE], metric_uri)
+            if not pd.isnull(metrics.loc[metric, SCORING_SYSTEM]):
+                self.create_scoring_system_triples(metrics.loc[metric, SCORING_SYSTEM], metric_uri)
             if not pd.isnull(metrics.loc[metric, UNIT]):
                 self.create_unit_triples(metrics.loc[metric, UNIT], metrics.loc[metric, UNIT_TYPE], measure_uri)
             if not pd.isnull(metrics.loc[metric, PARTS]):
                 self.create_metric_part_triples(metrics.loc[metric, PARTS].split(','), metric_uri)
             if not pd.isnull(metrics.loc[metric, EVALUATION_CRITERIA]):
-                self.create_criteria_triples(metrics.loc[metric, EVALUATION_CRITERIA], metric_uri)
+                self.create_criteria_triples(metrics.loc[metric, EVALUATION_CRITERIA].split(','), metric_uri)
             if not pd.isnull(metrics.loc[metric, RESOLUTION_FEATURE]):
                 self.create_resolution_triples(metrics.loc[metric, RESOLUTION_FEATURE], metric_uri)
             if not pd.isnull(metrics.loc[metric, FUNCTION]):
-                self.create_aggr_function_triples(metrics.loc[metric, FUNCTION], metric_uri)
+                self.create_aggregate_function_triples(metrics.loc[metric, FUNCTION], metric_uri)
             if not pd.isnull(metrics.loc[metric, BUFFER]):
-                self.create_buffer_triples(metrics.loc[metric, BUFFER], metric_uri)
+                buffer_list = str(metrics.loc[metric, BUFFER])
+                self.create_buffer_triples(buffer_list.split(';'), metrics.loc[metric, BUFFER_UNIT], metric_uri)
 
     def create_weight_triples(self, weight, metric_uri):
         """
@@ -81,6 +88,17 @@ class TripleDataset:
         self.dataset.add((weight_uri, OM.HAS_VALUE, weight_measure, OM.NEMO_GRAPH))
         self.dataset.add((weight_measure, OM.HAS_NUMERIC_VALUE, weight_value, OM.NEMO_GRAPH))
 
+    def create_measuring_mode_triples(self, measuring_mode, metric_uri):
+        """
+        creates measuring mode triples that are linked to evaluation metric.
+        Args:
+            measuring_mode: the way metric was measured, e.g. objective or subjective.
+            metric_uri: relevant method uri
+        """
+        measuring_mode_uri = URIRef(OM.PREFIX_NEMO + measuring_mode)
+        self.dataset.add((metric_uri, OM.MEASURED_WITH, measuring_mode_uri, OM.NEMO_GRAPH))
+        self.dataset.add((measuring_mode_uri, RDF.type, OM.MEASURING_MODE, OM.NEMO_GRAPH))
+
     def create_weighting_system_triples(self, weighting, method_uri):
         """
         creates weighting system triples that are linked to evaluation method
@@ -92,17 +110,17 @@ class TripleDataset:
         self.dataset.add((method_uri, OM.HAS_WEIGHTING_SYSTEM, weighting_system_uri, OM.NEMO_GRAPH))
         self.dataset.add((weighting_system_uri, RDF.type, OM.WEIGHTING_SYSTEM, OM.NEMO_GRAPH))
 
-    def create_evaluation_scale_triples(self, evaluation_scale, metric_uri):
+    def create_scoring_system_triples(self, scoring_system, metric_uri):
         """
-        creates evaluation scale triples linked to the prticular metric.
+        creates evaluation scale triples linked to the particular metric.
         Args:
-            evaluation_scale: an evluaiton scale, e.g. 0-100 percent or 1-5 score, for reference check OM ontology.
+            scoring_system: an evaluation scale, e.g. 0-100 percent or 1-5 score, for reference check OM ontology.
             metric_uri: relevant metric uri.
         """
-        evaluation_scale = URIRef(OM.PREFIX_OM + evaluation_scale)
-        self.dataset.add((metric_uri, OM.IS_NORMALISED_TO_SCALE, evaluation_scale, OM.NEMO_GRAPH))
+        scoring_system = URIRef(OM.PREFIX_OM + scoring_system)
+        self.dataset.add((metric_uri, OM.NORMALISED_TO_SCORING_SYSTEM, scoring_system, OM.NEMO_GRAPH))
 
-    def create_aggr_function_triples(self, function, metric_uri):
+    def create_aggregate_function_triples(self, function, metric_uri):
         """
         creates aggregate function triples. It is used if metric value for example is an average.
         Args:
@@ -113,18 +131,29 @@ class TripleDataset:
         self.dataset.add((function_uri, RDF.type, OM.FUNCTION, OM.NEMO_GRAPH))
         self.dataset.add((metric_uri, OM.HAS_AGGREGATE_FUNCTION, function_uri, OM.NEMO_GRAPH))
 
-    def create_unit_triples(self, unit, unit_type, measure_uri):
+    def create_unit_triples(self, units, unit_type, measure_uri):
         """
         creates unit triples for the relevant metric.
         Args:
-            unit: refer to OM ontology.
+            units: refer to OM ontology.
             unit_type: more general unit type compared to unit instance.
             measure_uri: relevant metric uri.
         """
-        unit_uri = URIRef(OM.PREFIX_OM + unit)
         unit_type_uri = URIRef(OM.PREFIX_OM + unit_type)
-        self.dataset.add((measure_uri, OM.HAS_UNIT, unit_uri, OM.NEMO_GRAPH))
-        self.dataset.add((unit_uri, RDF.type, unit_type_uri, OM.NEMO_GRAPH))
+        if len(units) == 3:
+            pass
+        elif len(units) == 2:
+            combined_unit_uri = URIRef(OM.PREFIX_OM + units[0] + 'Per' + units[1])
+            numerator_uri = URIRef(OM.PREFIX_OM + units[0])
+            denominator_uri = URIRef(OM.PREFIX_OM + units[1])
+            self.dataset.add((measure_uri, OM.HAS_UNIT, combined_unit_uri, OM.NEMO_GRAPH))
+            self.dataset.add((combined_unit_uri, RDF.type, unit_type_uri, OM.NEMO_GRAPH))
+            self.dataset.add((combined_unit_uri, OM.HAS_NUMERATOR, numerator_uri, OM.NEMO_GRAPH))
+            self.dataset.add((combined_unit_uri, OM.HAS_DENOMINATOR, denominator_uri, OM.NEMO_GRAPH))
+        else:
+            unit_uri = URIRef(OM.PREFIX_OM + units[0])
+            self.dataset.add((measure_uri, OM.HAS_UNIT, unit_uri, OM.NEMO_GRAPH))
+            self.dataset.add((unit_uri, RDF.type, unit_type_uri, OM.NEMO_GRAPH))
 
     def create_metric_part_triples(self, parts, metric_uri):
         """
@@ -148,35 +177,36 @@ class TripleDataset:
         res_feature_uri = URIRef(OM.PREFIX_NEMO + str(uuid.uuid1()))
         res_feature_class = URIRef(OM.PREFIX_NEMO + resolution_feature)
         self.dataset.add((res_feature_uri, RDF.type, res_feature_class, OM.NEMO_GRAPH))
-        self.dataset.add((metric_uri, OM.IS_AGGREGATED_ON, res_feature_uri, OM.NEMO_GRAPH))
+        self.dataset.add((metric_uri, OM.IS_MEASURED_ON, res_feature_uri, OM.NEMO_GRAPH))
 
-    def create_criteria_triples(self, criteria, metric_uri):
+    def create_criteria_triples(self, criterias, metric_uri):
         """
         creates triples defining bike network goodness criteria for which relevant metric is used.
         Args:
-            criteria: A goodness criteria, like safety, efficiency, quality, attractiveness.
+            criterias: A goodness criteria, like safety, efficiency, quality, attractiveness.
             metric_uri: relevant metric uri.
         """
-        criteria_uri = URIRef(OM.PREFIX_NEMO + str(uuid.uuid1()))
-        criteria_class = URIRef(OM.PREFIX_NEMO + criteria)
-        self.dataset.add((criteria_uri, RDF.type, criteria_class, OM.NEMO_GRAPH))
-        self.dataset.add((metric_uri, OM.MEASURES, criteria_uri, OM.NEMO_GRAPH))
+        for criteria in criterias:
+            criteria_uri = URIRef(OM.PREFIX_NEMO + str(uuid.uuid1()))
+            criteria_class = URIRef(OM.PREFIX_NEMO + criteria)
+            self.dataset.add((criteria_uri, RDF.type, criteria_class, OM.NEMO_GRAPH))
+            self.dataset.add((metric_uri, OM.MEASURES, criteria_uri, OM.NEMO_GRAPH))
 
-    def create_buffer_triples(self, buffer, metric_uri):
+    def create_buffer_triples(self, buffers, buffer_unit, metric_uri):
         """
         creates triples to define a buffered area around network element (edge or node) within which certain metrics are estimated.
         Args:
             buffer: distance from the edge or node.
             metric_uri: relevant metric uri.
         """
-        buffer_uri = URIRef(OM.NEMO_GRAPH + str(uuid.uuid1()))
-        measure_uri = URIRef(OM.NEMO_GRAPH + str(uuid.uuid1()))
-        buffer_distance = Literal(str(buffer), datatype=XSD.integer)
-        buffer_unit = OM.METRE
-        self.dataset.add((metric_uri, OM.IS_MEASURED_WITHIN_BUFFER, buffer_uri, OM.NEMO_GRAPH))
-        self.dataset.add((buffer_uri, OM.HAS_VALUE, measure_uri, OM.NEMO_GRAPH))
-        self.dataset.add((measure_uri, OM.HAS_UNIT, buffer_unit, OM.NEMO_GRAPH))
-        self.dataset.add((measure_uri, OM.HAS_NUMERIC_VALUE, buffer_distance, OM.NEMO_GRAPH))
+        for buffer in buffers:
+            buffer_uri = URIRef(OM.NEMO_GRAPH + str(uuid.uuid1()))
+            measure_uri = URIRef(OM.NEMO_GRAPH + str(uuid.uuid1()))
+            buffer_distance = Literal(str(buffer), datatype=XSD.integer)
+            self.dataset.add((metric_uri, OM.IS_MEASURED_WITHIN_BUFFER, buffer_uri, OM.NEMO_GRAPH))
+            self.dataset.add((buffer_uri, OM.HAS_VALUE, measure_uri, OM.NEMO_GRAPH))
+            self.dataset.add((measure_uri, OM.HAS_UNIT, URIRef(OM.PREFIX_OM + buffer_unit), OM.NEMO_GRAPH))
+            self.dataset.add((measure_uri, OM.HAS_NUMERIC_VALUE, buffer_distance, OM.NEMO_GRAPH))
 
     def write_triples(self, out_dir):
 
@@ -188,7 +218,7 @@ root_dir = 'C:/Users/agrisiute/Desktop/'
 out_dir = root_dir + 'output/'
 input_dir = root_dir + 'input/'
 
-input_file = input_dir + 'test.xlsx'
+input_file = input_dir + 'metrics.xlsx'
 metric_df = pd.DataFrame(pd.read_excel(input_file))
 
 metric_dataset = TripleDataset()

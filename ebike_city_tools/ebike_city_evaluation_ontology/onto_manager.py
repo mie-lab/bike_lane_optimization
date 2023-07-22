@@ -24,8 +24,8 @@ MULTIMODAL_METRIC = URIRef(PREFIX_NEMO + 'MultimodalMetric')
 TOPOLOGICAL_METRIC = URIRef(PREFIX_NEMO + 'TopologicalMetric')
 
 # Nemo properties
-IS_NORMALISED_TO_SCALE = URIRef(PREFIX_NEMO + 'IsNormalisedToScale')
-IS_AGGREGATED_ON = URIRef(PREFIX_NEMO + 'isAggregatedOn')
+NORMALISED_TO_SCORING_SYSTEM = URIRef(PREFIX_NEMO + 'normalisedToScoringSystem')
+IS_MEASURED_ON = URIRef(PREFIX_NEMO + 'isMeasuredOn')
 IS_COMPOSED_OF = URIRef(PREFIX_NEMO + 'isComposedOf')
 HAS_WEIGHTING_SYSTEM = URIRef(PREFIX_NEMO + 'hasWeightingSystem')
 IS_MEASURED_BY = URIRef(PREFIX_NEMO + 'isMeasuredBy')
@@ -53,5 +53,7 @@ HAS_AGGREGATE_FUNCTION = URIRef(PREFIX_OM + 'hasAggregateFunction')
 HAS_UNIT = URIRef(PREFIX_OM + 'hasUnit')
 HAS_VALUE = URIRef(PREFIX_OM + 'hasValue')
 HAS_NUMERIC_VALUE = URIRef(PREFIX_OM + 'hasNumericValue')
+HAS_NUMERATOR = URIRef(PREFIX_OM + 'hasNumerator')
+HAS_DENOMINATOR = URIRef(PREFIX_OM + 'hasDenominator')
 
 
