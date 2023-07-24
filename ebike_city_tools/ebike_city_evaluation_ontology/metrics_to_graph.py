@@ -21,6 +21,7 @@ BUFFER_UNIT = 'BufferUnit'
 WEIGHT = 'Weight'
 COMMENT = 'Comment'
 
+
 class TripleDataset:
 
     def __init__(self):
@@ -37,22 +38,22 @@ class TripleDataset:
 
             metric_uri = URIRef(OM.NEMO_GRAPH + str(uuid.uuid1()))
             metric_type = URIRef(OM.PREFIX_NEMO + metrics.loc[metric, EVALUATION_METRIC])
-            measure_uri = URIRef(OM.NEMO_GRAPH + str(uuid.uuid1()))
-            method_uri = URIRef(metrics.loc[metric, EVALUATION_METHOD])
-            measuring_mode = URIRef(OM.PREFIX_NEMO + metrics.loc[metric, MEASURING_MODE])
-
             self.dataset.add((metric_uri, RDF.type, metric_type, OM.NEMO_GRAPH))
+            measure_uri = URIRef(OM.NEMO_GRAPH + str(uuid.uuid1()))
             self.dataset.add((measure_uri, RDF.type, OM.MEASURE, OM.NEMO_GRAPH))
             self.dataset.add((metric_uri, OM.HAS_VALUE, measure_uri, OM.NEMO_GRAPH))
-            self.dataset.add((metric_uri, OM.IS_USED_IN, method_uri, OM.NEMO_GRAPH))
+            method_uri = URIRef(metrics.loc[metric, EVALUATION_METHOD])
+            self.dataset.add((metric_uri, OM.USED_IN, method_uri, OM.NEMO_GRAPH))
+            measuring_mode = URIRef(OM.PREFIX_NEMO + metrics.loc[metric, MEASURING_MODE])
             self.dataset.add((metric_uri, OM.MEASURED_WITH, measuring_mode, OM.NEMO_GRAPH))
             self.dataset.add((method_uri, RDF.type, OM.EVALUATION_METHOD, OM.NEMO_GRAPH))
 
             if not pd.isnull(metrics.loc[metric, COMMENT]):
-                self.dataset.add((metric_uri, RDFS.comment, Literal(str(metrics.loc[metric, COMMENT]), datatype=XSD.string)))
+                comment = Literal(str(metrics.loc[metric, COMMENT]), datatype=XSD.string)
+                self.dataset.add((metric_uri, RDFS.comment, comment, OM.NEMO_GRAPH))
             if not pd.isnull(metrics.loc[metric, METRIC_TYPE]):
                 general_metric_type = URIRef(OM.PREFIX_NEMO + metrics.loc[metric, METRIC_TYPE])
-                self.dataset.add((measure_uri, RDF.type, general_metric_type, OM.NEMO_GRAPH))
+                self.dataset.add((measure_uri, RDFS.subClassOf, general_metric_type, OM.NEMO_GRAPH))
             if not pd.isnull(metrics.loc[metric, WEIGHTING_SYSTEM]):
                 self.create_weighting_system_triples(metrics.loc[metric, WEIGHTING_SYSTEM], method_uri)
             if not pd.isnull(metrics.loc[metric, WEIGHT]):
@@ -165,7 +166,7 @@ class TripleDataset:
         for part in parts:
             part_uri = URIRef(OM.NEMO_GRAPH + str(uuid.uuid1()))
             self.dataset.add((part_uri, RDF.type, URIRef(OM.PREFIX_NEMO + part), OM.NEMO_GRAPH))
-            self.dataset.add((metric_uri, OM.IS_COMPOSED_OF, part_uri, OM.NEMO_GRAPH))
+            self.dataset.add((metric_uri, OM.COMPOSED_OF, part_uri, OM.NEMO_GRAPH))
 
     def create_resolution_triples(self, resolution_feature, metric_uri):
         """
@@ -177,13 +178,13 @@ class TripleDataset:
         res_feature_uri = URIRef(OM.PREFIX_NEMO + str(uuid.uuid1()))
         res_feature_class = URIRef(OM.PREFIX_NEMO + resolution_feature)
         self.dataset.add((res_feature_uri, RDF.type, res_feature_class, OM.NEMO_GRAPH))
-        self.dataset.add((metric_uri, OM.IS_MEASURED_ON, res_feature_uri, OM.NEMO_GRAPH))
+        self.dataset.add((metric_uri, OM.AGGREGATED_ON, res_feature_uri, OM.NEMO_GRAPH))
 
     def create_criteria_triples(self, criterias, metric_uri):
         """
         creates triples defining bike network goodness criteria for which relevant metric is used.
         Args:
-            criterias: A goodness criteria, like safety, efficiency, quality, attractiveness.
+            criterias: A bike network goodness criteria, like safety, efficiency, quality, attractiveness.
             metric_uri: relevant metric uri.
         """
         for criteria in criterias:
@@ -194,16 +195,18 @@ class TripleDataset:
 
     def create_buffer_triples(self, buffers, buffer_unit, metric_uri):
         """
-        creates triples to define a buffered area around network element (edge or node) within which certain metrics are estimated.
+        creates triples to define a buffered area around network element (edge or node)
+        within which certain metrics are estimated.
         Args:
-            buffer: distance from the edge or node.
+            buffers: distance from the edge or node.
+            buffer_unit: unit that defines buffer extent, e.g. metre, minute.
             metric_uri: relevant metric uri.
         """
         for buffer in buffers:
             buffer_uri = URIRef(OM.NEMO_GRAPH + str(uuid.uuid1()))
             measure_uri = URIRef(OM.NEMO_GRAPH + str(uuid.uuid1()))
             buffer_distance = Literal(str(buffer), datatype=XSD.integer)
-            self.dataset.add((metric_uri, OM.IS_MEASURED_WITHIN_BUFFER, buffer_uri, OM.NEMO_GRAPH))
+            self.dataset.add((metric_uri, OM.MEASURED_WITHIN_BUFFER, buffer_uri, OM.NEMO_GRAPH))
             self.dataset.add((buffer_uri, OM.HAS_VALUE, measure_uri, OM.NEMO_GRAPH))
             self.dataset.add((measure_uri, OM.HAS_UNIT, URIRef(OM.PREFIX_OM + buffer_unit), OM.NEMO_GRAPH))
             self.dataset.add((measure_uri, OM.HAS_NUMERIC_VALUE, buffer_distance, OM.NEMO_GRAPH))
@@ -214,7 +217,7 @@ class TripleDataset:
             file.write(self.dataset.serialize(format='nquads'))
 
 
-root_dir = 'C:/Users/agrisiute/Desktop/'
+root_dir = 'C:/Users/agrisiute/OneDrive - ETH Zurich/Desktop/nemo/'
 out_dir = root_dir + 'output/'
 input_dir = root_dir + 'input/'
 
