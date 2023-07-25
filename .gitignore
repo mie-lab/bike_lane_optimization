@@ -1,5 +1,7 @@
 # Project specific
 outputs/
+.vscode
+outputs_prev/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
