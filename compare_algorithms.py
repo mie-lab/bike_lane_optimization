@@ -6,8 +6,9 @@ from ebike_city_tools.random_graph import *
 from ebike_city_tools.visualize import *
 from ebike_city_tools.metrics import *
 from ebike_city_tools.optimize.optimizer import Optimizer
+from ebike_city_tools.utils import add_bike_and_car_time
 
-ITERS_TEST = 2
+ITERS_TEST = 3
 OUT_PATH = "outputs"
 os.makedirs(OUT_PATH, exist_ok=True)
 
@@ -23,7 +24,7 @@ algorithm_dict = {
     "optimize": {"bike_and_car": optimizer},
 }
 # metrics to evaluate
-metrics_for_eval = ["sp_reachability", "sp_length", "closeness"]
+metrics_for_eval = ["sp_reachability", "sp_hops", "closeness"]
 bike_car_metrics = ["bike_" + m for m in metrics_for_eval] + ["car_" + m for m in metrics_for_eval]
 
 all_results = []
@@ -58,10 +59,18 @@ for i in range(ITERS_TEST):
             for metric in metrics_for_eval:
                 df.loc[algorithm, graph_name + "_" + metric] = eval(metric)(graph_to_eval)
             df.loc[algorithm, "runtime"] = runtime
+
+        # Compute weightest shortest path length for both
+        G_city = add_bike_and_car_time(base_graph, bike_graph, car_graph)
+        df.loc[algorithm, "bike_travel_time"] = sp_length(G_city, attr="biketime")
+        df.loc[algorithm, "car_travel_time"] = sp_length(G_city, attr="cartime")
+
         # add metrics for original graph (pretending that we did not subtract any car lanes)
         for metric in metrics_for_eval:
             df.loc["original", "car_" + metric] = eval(metric)(base_graph)
             df.loc["original", "runtime"] = 0
+            G_city = add_bike_and_car_time(base_graph, nx.Graph(), base_graph)
+            df.loc["original", "car_travel_time"] = sp_length(G_city, attr="cartime")
             # df.loc["original", "bike_" + metric] = 0 # could fill with 0 for some metrics and inf for others
 
     df.index.name = "Method"
@@ -71,10 +80,10 @@ for i in range(ITERS_TEST):
 
 # Average over all runs and sort by closeness metric
 df = pd.concat(all_results)
-df = df.drop("run", axis=1).groupby("Method").mean().sort_values(["car_closeness"])
+# df = df.drop("run", axis=1).groupby("Method").mean()
 
 # Save results as a csv
 df.to_csv(os.path.join(OUT_PATH, "algo_comp.csv"))
 
 # Plotting
-scatter_car_bike(df, metrics_for_eval, OUT_PATH)
+# scatter_car_bike(df, metrics_for_eval, OUT_PATH)

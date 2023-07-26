@@ -1,5 +1,7 @@
 import networkx as nx
 import numpy as np
+import pandas as pd
+
 
 # metrics for a directed graph
 def sp_reachability(G):
@@ -10,12 +12,17 @@ def sp_reachability(G):
     return np.mean(node_reachable_ratio)
 
 
-def sp_length(G):
+def sp_hops(G):
     sp_lens = []
     for _, sp_node_dict in nx.all_pairs_shortest_path(G):
         reachable_lens = [len(val) for _, val in sp_node_dict.items()]
         sp_lens.extend(reachable_lens)
     return np.mean(sp_lens)
+
+
+def sp_length(G, attr="cartime"):
+    out = pd.DataFrame(nx.floyd_warshall(G, weight=attr))
+    return np.mean(out.values)
 
 
 def closeness(G):
