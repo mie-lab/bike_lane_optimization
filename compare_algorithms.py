@@ -5,19 +5,22 @@ from ebike_city_tools.iterative_algorithms import *
 from ebike_city_tools.random_graph import *
 from ebike_city_tools.visualize import *
 from ebike_city_tools.metrics import *
+from ebike_city_tools.optimize.optimizer import Optimizer
 
-ITERS_TEST = 20
+ITERS_TEST = 2
 OUT_PATH = "outputs"
 os.makedirs(OUT_PATH, exist_ok=True)
 
+optimizer = Optimizer()
 # All algorithms that we test
 algorithm_dict = {
-    "spanning_random": {"bike": extract_spanning_tree, "car": random_edge_order},
-    "full_random": {"bike": extract_oneway_subnet, "car": random_edge_order},
+    # "spanning_random": {"bike": extract_spanning_tree, "car": random_edge_order},
+    # "full_random": {"bike": extract_oneway_subnet, "car": random_edge_order},
     # "spanning_balanced": {"bike": extract_spanning_tree, "car": greedy_nodes_balanced},
     # "full_balanced": {"bike": extract_oneway_subnet, "car": greedy_nodes_balanced},
     "betweenness": {"bike_and_car": greedy_betweenness},
-    "optim_betweenness": {"bike_and_car": optimized_betweenness},
+    # "optim_betweenness": {"bike_and_car": optimized_betweenness},
+    "optimize": {"bike_and_car": optimizer},
 }
 # metrics to evaluate
 metrics_for_eval = ["sp_reachability", "sp_length", "closeness"]
@@ -29,7 +32,7 @@ for i in range(ITERS_TEST):
     df = pd.DataFrame(index=list(algorithm_dict.keys()) + ["original"], columns=bike_car_metrics + ["runtime"])
 
     # generate a random (street-network realistic) graph
-    base_graph = base_graph_doppelspur()  # generate_base_graph()
+    base_graph = city_graph()  # generate_base_graph()
 
     # Run all algorithms on this base graph and generate bike and car graph
     for algorithm in algorithm_dict.keys():
