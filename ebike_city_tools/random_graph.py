@@ -124,6 +124,7 @@ def city_graph(n=20, min_neighbors=2):
     # define node coordinates
     coords = get_city_coords(n)
     node_inds = np.arange(n)
+    node_ids = np.arange(n) # * 10 # to test whether it works also for other node IDs
 
     # add edge list
     edge_list = []
@@ -142,12 +143,12 @@ def city_graph(n=20, min_neighbors=2):
             # (From paper: for every additional 1% of uphill gradient,
             # the mean speed is reduced by 0.4002 m/s (1.44 kph))
             # --> meters in height / (dist * 1000) * 100
-            edge_list.append([i, neigh, {"width": 1, "distance": dist, "gradient": gradient}])
-            edge_list.append([neigh, i, {"width": 1, "distance": dist, "gradient": -gradient}])
+            edge_list.append([node_ids[i], node_ids[neigh], {"width": 1, "distance": dist, "gradient": gradient}])
+            edge_list.append([node_ids[neigh], node_ids[i], {"width": 1, "distance": dist, "gradient": -gradient}])
     G.add_edges_from(edge_list)
 
     # set attributes
-    attrs = {i: {"loc": coords[i]} for i in range(n)}
+    attrs = {node_ids[i]: {"loc": coords[i]} for i in range(n)}
     nx.set_node_attributes(G, attrs)
 
     assert nx.is_strongly_connected(G)
