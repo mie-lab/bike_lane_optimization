@@ -1,7 +1,7 @@
 import networkx as nx
 import pandas as pd
-from mip import mip
-from ebike_city_tools.optimize.utils import output_to_dataframe
+from mip import mip, INTEGER, CONTINUOUS
+from ebike_city_tools.optimize.utils import output_to_dataframe, flow_to_df
 
 
 def initialize_IP(
@@ -9,18 +9,24 @@ def initialize_IP(
     edges_bike_list=None,
     edges_car_list=None,
     fixed_values=pd.DataFrame(),
-    cap_factor=2,
+    cap_factor=1,
     only_double_bikelanes=True,
     shared_lane_variables=True,
     shared_lane_factor=2,  # twice as long bike time on shared lanes
     od_df=None,
+    bike_flow_constant=1,
+    car_flow_constant=1,
+    integer_problem=False,
 ):
     """Allocates traffic lanes to the bike network or the car network by optimizing overall travel time
     and ensuring network accessibility for both modes
     Input: Graph G
     Output: Dataframe with optimal edge capacity values for each network (bike and car)
     """
-    print("CAP FACTOR", cap_factor)
+    if integer_problem:
+        var_type = INTEGER
+    else:
+        var_type = CONTINUOUS
 
     # edge list where at least one of the capacities (bike or car) has not been fixed
     edge_list = list(G.edges)
@@ -44,6 +50,8 @@ def initialize_IP(
         # for now, just extract s t columns and ignore how much flow
         od_flow = od_df[["s", "t"]].values
 
+    print("Number of flow variables", len(od_flow), m, len(od_flow) * m)
+
     capacities = nx.get_edge_attributes(G, "capacity")
     distance = nx.get_edge_attributes(G, "distance")
     gradient = nx.get_edge_attributes(G, "gradient")
@@ -65,14 +73,20 @@ def initialize_IP(
 
     # flow variables
 
-    var_f_car = [[streetIP.add_var(name=f"f_{s},{t},{e},c", lb=0) for e in range(m)] for (s, t) in od_flow]
-    var_f_bike = [[streetIP.add_var(name=f"f_{s},{t},{e},b", lb=0) for e in range(m)] for (s, t) in od_flow]
+    var_f_car = [
+        [streetIP.add_var(name=f"f_{s},{t},{e},c", lb=0, var_type=var_type) for e in range(m)] for (s, t) in od_flow
+    ]
+    var_f_bike = [
+        [streetIP.add_var(name=f"f_{s},{t},{e},b", lb=0, var_type=var_type) for e in range(m)] for (s, t) in od_flow
+    ]
     if shared_lane_variables:
         # if allowing for shared lane usage between cars and bike, set additional variables
-        var_f_shared = [[streetIP.add_var(name=f"f_{s},{t},{e},s", lb=0) for e in range(m)] for (s, t) in od_flow]
+        var_f_shared = [
+            [streetIP.add_var(name=f"f_{s},{t},{e},s", lb=0, var_type=var_type) for e in range(m)] for (s, t) in od_flow
+        ]
     # capacity variables
-    cap_bike = [streetIP.add_var(name=f"u_{e},b", lb=0) for e in range(b)]
-    cap_car = [streetIP.add_var(name=f"u_{e},c", lb=0) for e in range(c)]
+    cap_bike = [streetIP.add_var(name=f"u_{e},b", lb=0, var_type=var_type) for e in range(b)]
+    cap_car = [streetIP.add_var(name=f"u_{e},c", lb=0, var_type=var_type) for e in range(c)]
 
     # functions to call the variables
     def f_car(od_ind, e):
@@ -96,10 +110,6 @@ def initialize_IP(
         else:
             return fixed_values.loc[edge_list.index(e), "u_c(e)"]
 
-    # Flow constraints
-    bike_flow_constant = 1
-    car_flow_constant = 1
-    # -> currently 1 and -1
     for v in node_list:
         for od_ind, (s, t) in enumerate(od_flow):
             streetIP += f_bike(od_ind, e) >= 0
@@ -243,11 +253,12 @@ if __name__ == "__main__":
     toc2 = time.time()
 
     dataframe_edge_cap = output_to_dataframe(ip, G)
+    flow_df = flow_to_df(ip, list(G.edges))
+    flow_df.to_csv("outputs/test_flow_solution.csv", index=False)
     opt_val = ip.objective_value
     print("init TIME", toc - tic)
     print("optim TIME", toc2 - toc)
     print("OPT VALUE", opt_val)
-    # return dataframe_edge_cap
-    # print(G_input.edges(data=True))
-    # test = optimize_lp(G_input)
     dataframe_edge_cap.to_csv("outputs/test_lp_solution.csv", index=False)
+    # save the new graph --> undirected
+    # nx.write_gpickle(G, "outputs/test_G_random.gpickle")

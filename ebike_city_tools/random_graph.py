@@ -113,7 +113,7 @@ def get_city_coords(n=20):
     return coords.astype(int)
 
 
-def city_graph(n=20, min_neighbors=2):
+def city_graph(n=20, neighbor_choices=[2, 3, 4], neighbor_p=[0.6, 0.3, 0.1]):
     """
     Create realistic city graph with coordinates, elevation, etc
     Returns: MultiDiGraph with attributes width, distance, gradient -> one edge per lane!
@@ -124,7 +124,7 @@ def city_graph(n=20, min_neighbors=2):
     # define node coordinates
     coords = get_city_coords(n)
     node_inds = np.arange(n)
-    node_ids = np.arange(n) # * 10 # to test whether it works also for other node IDs
+    node_ids = np.arange(n)  # * 10 # to test whether it works also for other node IDs
 
     # add edge list
     edge_list = []
@@ -134,7 +134,7 @@ def city_graph(n=20, min_neighbors=2):
         neighbor_probs = 1 / neighbor_distances**2
         neighbor_probs = neighbor_probs / np.sum(neighbor_probs)
         # nr_neighbors = max(min_neighbors, round(np.random.normal(2, 2)))
-        nr_neighbors = np.random.choice([2, 3, 4], p=[0.6, 0.3, 0.1])
+        nr_neighbors = np.random.choice(neighbor_choices, p=neighbor_p)
         sampled_neighbors = np.random.choice(node_inds, p=neighbor_probs, replace=True, size=nr_neighbors)
         for neigh in sampled_neighbors:
             dist = neighbor_distances[neigh] / 1000  # we want the distance in km
@@ -151,7 +151,8 @@ def city_graph(n=20, min_neighbors=2):
     attrs = {node_ids[i]: {"loc": coords[i]} for i in range(n)}
     nx.set_node_attributes(G, attrs)
 
-    assert nx.is_strongly_connected(G)
+    if not nx.is_strongly_connected(G):
+        return city_graph(n=n, neighbor_choices=neighbor_choices, neighbor_p=neighbor_p)
 
     return nx.MultiDiGraph(G)
 

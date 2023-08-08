@@ -32,23 +32,14 @@ def output_to_dataframe(streetIP, G):
     return dataframe_edge_cap
 
 
-def flow_to_df(streetIP, G):
-    listoflists = []
-
-    for s in range(len(G.nodes)):
-        for t in range(len(G.nodes)):
-            for e in G.edges:
-                opt_flow_bike = streetIP.vars[f"f_{s},{t},{e},b"]
-                opt_flow_car = streetIP.vars[f"f_{s},{t},{e},c"]
-                listoflists.append(
-                    [f"f_{s},{t},{e},b", f"{opt_flow_bike:.2f}", f"f_{s},{t},{e},c", f"{opt_flow_car:.2f}"]
-                )
-    dataframe = pd.DataFrame(data=listoflists)
-    dataframe.columns = ["name", "flow_bike", "name", "flow_car"]
-    newcolumn = dataframe["flow_bike"].str.replace(".", ",")
-    dataframe["flow_bike"] = newcolumn
-    newcolumn = dataframe["flow_car"].str.replace(".", ",")
-    dataframe["flow_car"] = newcolumn
+def flow_to_df(streetIP, edge_list):
+    var_values = []
+    for m in streetIP.vars:
+        if m.name.startswith("f_"):
+            (s, t, e_index, edgetype) = m.name[2:].split(",")
+            edge = edge_list[int(e_index)]
+            var_values.append([m.name, s, t, edge[0], edge[1], edgetype, m.x])
+    dataframe = pd.DataFrame(var_values, columns=["name", "s", "t", "edge_u", "edge_v", "var_type", "flow"])
     return dataframe
 
 

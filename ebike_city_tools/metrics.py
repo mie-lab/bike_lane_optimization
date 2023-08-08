@@ -20,8 +20,10 @@ def sp_hops(G):
     return np.mean(sp_lens)
 
 
-def sp_length(G, attr="cartime"):
+def sp_length(G, attr="cartime", return_matrix=False):
     out = pd.DataFrame(nx.floyd_warshall(G, weight=attr))
+    if return_matrix:
+        return out.values
     return np.mean(out.values)
 
 
