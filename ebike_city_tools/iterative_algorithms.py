@@ -122,7 +122,6 @@ def greedy_betweenness(base_graph_inp):
     Iteratively remove the edges with lowest betweenness centrality, and add them to the bike lane network if they do
     not destroy strong connectivity
     """
-    # TODO: parameter whether or not to fix the lane in the opposite direction
     # (such that only one lane) per street can be selected
     # copy graph
     base_graph = base_graph_inp.copy()

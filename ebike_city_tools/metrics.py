@@ -46,5 +46,3 @@ def closeness(G):
 #         list(nx.current_flow_betweenness_centrality(G, weight="weight").values())
 #     )
 #     return metric_dict
-# TODO
-# Centrality degrading of nodes that are central in the original graph

@@ -123,7 +123,6 @@ class StreetNetworkEnv:
         return self.step(changed_edge * self.n_action_types + opposite_action)
 
     def compute_reward(self):
-        # TODO: more precise rewards
         # ["sp_reachability", "sp_length", "closeness"]
         bike_closeness = closeness(self.bike_graph)
         car_closeness = closeness(self.car_graph)
@@ -140,7 +139,6 @@ if __name__ == "__main__":
     prev_reward = 0
     rewards = []
     for i in range(1000):
-
         act_avail = env.get_available_actions()
         #     action = np.random.randint(env.n_actions)
         action = np.random.choice(act_avail)

@@ -1,3 +1,5 @@
+import os
+import numpy as np
 import time
 import pandas as pd
 
@@ -7,12 +9,18 @@ from ebike_city_tools.optimize.utils import output_to_dataframe, make_fake_od
 
 from ebike_city_tools.random_graph import city_graph, lane_to_street_graph
 
+OUT_PATH = "outputs"
+os.makedirs(OUT_PATH, exist_ok=True)
+NR_ITERS = 5
+
 if __name__ == "__main__":
-    # test on 5 different graphs for each size
     res_df = []
-    for size in [30, 40, 50, 60, 70, 80, 90, 100]:
+    # test for graphs with 30-100 nodes
+    for size in np.arange(30, 110, 10):
+        # test for graphs with OD matrix of 2 times, 3 times, or 4 times as many entries as the number of nodes
         for od_factor in [2, 3, 4]:
-            for i in range(5):
+            # test for several iterations because randomized
+            for i in range(NR_ITERS):
                 G_city = city_graph(size)
                 G = lane_to_street_graph(G_city)
                 od = make_fake_od(size, od_factor * size, nodes=G.nodes)
@@ -36,4 +44,4 @@ if __name__ == "__main__":
                 print(res_df[-1])
                 print("----------")
             # save updated df in every iteration
-            pd.DataFrame(res_df).to_csv("outputs/runtime.csv")
+            pd.DataFrame(res_df).to_csv(os.path.join(OUT_PATH, "runtime.csv"))
