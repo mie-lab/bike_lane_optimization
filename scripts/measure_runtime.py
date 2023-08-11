@@ -3,7 +3,7 @@ import numpy as np
 import time
 import pandas as pd
 
-from ebike_city_tools.optimize.linear_program import initialize_IP
+from ebike_city_tools.optimize.linear_program import define_IP
 from ebike_city_tools.optimize.utils import output_to_dataframe, make_fake_od
 
 
@@ -26,7 +26,7 @@ if __name__ == "__main__":
                 od = make_fake_od(size, od_factor * size, nodes=G.nodes)
 
                 tic = time.time()
-                new_ip = initialize_IP(G, cap_factor=1, od_df=od)
+                new_ip = define_IP(G, cap_factor=1, od_df=od)
                 toc = time.time()
                 new_ip.optimize()
                 toc_finished = time.time()

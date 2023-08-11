@@ -3,7 +3,7 @@ import os
 import pandas as pd
 from ebike_city_tools.random_graph import city_graph, lane_to_street_graph
 from ebike_city_tools.optimize.utils import make_fake_od, output_to_dataframe, flow_to_df
-from ebike_city_tools.optimize.linear_program import initialize_IP
+from ebike_city_tools.optimize.linear_program import define_IP
 import numpy as np
 import geopandas as gpd
 import networkx as nx
@@ -76,7 +76,7 @@ if __name__ == "__main__":
     assert nx.is_strongly_connected(G), "G not connected"
 
     tic = time.time()
-    ip = initialize_IP(G, cap_factor=1, od_df=od, bike_flow_constant=0.9, car_flow_constant=0.9)
+    ip = define_IP(G, cap_factor=1, od_df=od, bike_flow_constant=0.9, car_flow_constant=0.9)
     toc = time.time()
     print("Finish init", toc - tic)
     ip.optimize()

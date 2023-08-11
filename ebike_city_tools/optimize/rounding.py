@@ -1,13 +1,13 @@
 import math
 import pandas as pd
 
-from ebike_city_tools.optimize.linear_program import initialize_IP
+from ebike_city_tools.optimize.linear_program import define_IP
 from ebike_city_tools.optimize.utils import output_to_dataframe
 
 
 def round_iteratively(G):
     # first round:
-    new_ip = initialize_IP(G)
+    new_ip = define_IP(G)
     new_ip.optimize()
     dataframe_edge_cap = output_to_dataframe(new_ip, G)
     opt_val = new_ip.objective_value
@@ -43,7 +43,7 @@ def round_iteratively(G):
                     edge_new_bike.append(list(G.edges)[j])
 
             # Reoptimisation
-            ip = initialize_IP(G, edge_new_bike, edge_new_car, dataframe_edge_cap)
+            ip = define_IP(G, edge_new_bike, edge_new_car, dataframe_edge_cap)
             ip.optimize()
             dataframe_edge_cap = output_to_dataframe(ip, G)
             opt_val = ip.objective_value
@@ -80,7 +80,7 @@ def round_iteratively(G):
                 edge_new_bike.append(list(G.edges)[j])
 
         # Reoptimisation
-        new_ip = initialize_IP(G, edge_new_bike, edge_new_car, dataframe_edge_cap)
+        new_ip = define_IP(G, edge_new_bike, edge_new_car, dataframe_edge_cap)
         new_ip.optimize()
         dataframe_edge_cap = output_to_dataframe(new_ip, G)
         opt_val = new_ip.objective_value

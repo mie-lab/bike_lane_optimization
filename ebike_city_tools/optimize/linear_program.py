@@ -5,7 +5,7 @@ from mip import mip, INTEGER, CONTINUOUS
 from ebike_city_tools.optimize.utils import output_to_dataframe, flow_to_df
 
 
-def initialize_IP(
+def define_IP(
     G,
     edges_bike_list=None,
     edges_car_list=None,

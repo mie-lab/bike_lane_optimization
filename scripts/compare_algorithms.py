@@ -5,14 +5,13 @@ from ebike_city_tools.iterative_algorithms import *
 from ebike_city_tools.random_graph import *
 from ebike_city_tools.visualize import *
 from ebike_city_tools.metrics import *
-from ebike_city_tools.optimize.optimizer import Optimizer
+from ebike_city_tools.optimize.optimizer import run_optimization
 from ebike_city_tools.utils import add_bike_and_car_time
 
 ITERS_TEST = 3
 OUT_PATH = "outputs"
 os.makedirs(OUT_PATH, exist_ok=True)
 
-optimizer = Optimizer()
 # All algorithms that we test
 algorithm_dict = {
     # "spanning_random": {"bike": extract_spanning_tree, "car": random_edge_order},
@@ -21,7 +20,7 @@ algorithm_dict = {
     # "full_balanced": {"bike": extract_oneway_subnet, "car": greedy_nodes_balanced},
     "betweenness": {"bike_and_car": greedy_betweenness},
     # "optim_betweenness": {"bike_and_car": optimized_betweenness},
-    "optimize": {"bike_and_car": optimizer},
+    "optimize": {"bike_and_car": run_optimization},
 }
 # metrics to evaluate
 metrics_for_eval = ["sp_reachability", "sp_hops", "closeness"]

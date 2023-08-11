@@ -5,7 +5,7 @@ import networkx as nx
 import pandas as pd
 from ebike_city_tools.random_graph import city_graph, lane_to_street_graph
 from ebike_city_tools.optimize.utils import output_to_dataframe, flow_to_df, make_fake_od
-from ebike_city_tools.optimize.linear_program import initialize_IP
+from ebike_city_tools.optimize.linear_program import define_IP
 from ebike_city_tools.optimize.round_simple import *
 from ebike_city_tools.metrics import sp_length
 
@@ -31,7 +31,7 @@ for trial in range(nr_trials):
 
         # initialize and optimize with this od matrix
         tic = time.time()
-        ip = initialize_IP(G, cap_factor=1, od_df=od, shared_lane_factor=shared_lane_factor)
+        ip = define_IP(G, cap_factor=1, od_df=od, shared_lane_factor=shared_lane_factor)
         toc = time.time()
         ip.optimize()
         toc2 = time.time()

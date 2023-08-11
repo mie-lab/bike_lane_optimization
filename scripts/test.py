@@ -1,7 +1,7 @@
 import os
 import time
 
-from ebike_city_tools.optimize.linear_program import initialize_IP
+from ebike_city_tools.optimize.optimizer import Optimizer
 from ebike_city_tools.optimize.utils import output_to_dataframe, flow_to_df
 
 OUT_PATH = "outputs"
@@ -23,19 +23,13 @@ if __name__ == "__main__":
     # FACTOR_MAX_PATHS = 0.5  # only half of the paths are allowed to use the same street
     # cap_factor = max_paths_one_edge * FACTOR_MAX_PATHS
 
-    tic = time.time()
-    ip = initialize_IP(G, cap_factor=1, od_df=od)
-    toc = time.time()
-    ip.optimize()
-    toc2 = time.time()
+    optim = Optimizer(graph=G, od_matrix=od)
+    optim.init_lp()
+    obj_value = optim.optimize()
+    dataframe_edge_cap, flow_df = optim.get_solution()
 
-    dataframe_edge_cap = output_to_dataframe(ip, G)
-    flow_df = flow_to_df(ip, list(G.edges))
     flow_df.to_csv(os.path.join(OUT_PATH, "test_flow_solution.csv"), index=False)
-    opt_val = ip.objective_value
-    print("init TIME", toc - tic)
-    print("optim TIME", toc2 - toc)
-    print("OPT VALUE", opt_val)
     dataframe_edge_cap.to_csv(os.path.join(OUT_PATH, "test_lp_solution.csv"), index=False)
+    print("OPT VALUE", obj_value)
     # save the new graph --> undirected
     # nx.write_gpickle(G, "outputs/test_G_random.gpickle")
