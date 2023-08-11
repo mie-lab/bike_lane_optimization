@@ -29,3 +29,10 @@ This repository implements various baseline algorithms for splitting into car an
 * `rl_env.py`: At some point I wanted to train a reinforcemnt learning agent to improve bike networks. This is only the environment that could be used for that (the RL agent is not implemented yet).
 
 The script `compare_algorithms.py` can be executed to run all the implented baseline algorithms and to evaluate them with respect to different metrics. The results are written into a csv file and are plotted, which is all saved in a folder called `outputs`. The script takes around a minute to execute.
+
+For example, run 
+```
+python scripts/compare_algorithms.py
+```
+
+Most scripts will save the results in the `outputs` folder.

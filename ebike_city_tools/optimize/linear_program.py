@@ -1,5 +1,6 @@
 import networkx as nx
 import pandas as pd
+import numpy as np
 from mip import mip, INTEGER, CONTINUOUS
 from ebike_city_tools.optimize.utils import output_to_dataframe, flow_to_df
 
