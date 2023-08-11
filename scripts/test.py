@@ -1,17 +1,15 @@
 import os
 import time
-
+import numpy as np
 from ebike_city_tools.optimize.optimizer import Optimizer
 from ebike_city_tools.optimize.utils import output_to_dataframe, flow_to_df
+from ebike_city_tools.random_graph import city_graph, lane_to_street_graph
+from ebike_city_tools.optimize.utils import make_fake_od
 
 OUT_PATH = "outputs"
 os.makedirs(OUT_PATH, exist_ok=True)
 
 if __name__ == "__main__":
-    from ebike_city_tools.random_graph import city_graph, lane_to_street_graph
-    from ebike_city_tools.optimize.utils import make_fake_od
-    import numpy as np
-
     np.random.seed(20)
 
     G_city = city_graph(20)
@@ -23,7 +21,7 @@ if __name__ == "__main__":
     # FACTOR_MAX_PATHS = 0.5  # only half of the paths are allowed to use the same street
     # cap_factor = max_paths_one_edge * FACTOR_MAX_PATHS
 
-    optim = Optimizer(graph=G, od_matrix=od)
+    optim = Optimizer(graph=G, od_matrix=od, integer_problem=True)
     optim.init_lp()
     obj_value = optim.optimize()
     dataframe_edge_cap, flow_df = optim.get_solution()

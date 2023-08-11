@@ -17,12 +17,12 @@ if __name__ == "__main__":
     res_df = []
     # test for graphs with 30-100 nodes
     for size in np.arange(30, 110, 10):
+        G_city = city_graph(size)
+        G = lane_to_street_graph(G_city)
         # test for graphs with OD matrix of 2 times, 3 times, or 4 times as many entries as the number of nodes
         for od_factor in [2, 3, 4]:
             # test for several iterations because randomized
             for i in range(NR_ITERS):
-                G_city = city_graph(size)
-                G = lane_to_street_graph(G_city)
                 od = make_fake_od(size, od_factor * size, nodes=G.nodes)
 
                 tic = time.time()

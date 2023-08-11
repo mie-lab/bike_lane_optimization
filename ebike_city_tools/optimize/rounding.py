@@ -6,6 +6,7 @@ from ebike_city_tools.optimize.utils import output_to_dataframe
 
 
 def round_iteratively(G):
+    """This is Aurelien's method - needs to be adapted to the new code and can be made more efficient"""
     # first round:
     new_ip = define_IP(G)
     new_ip.optimize()

@@ -38,6 +38,7 @@ def edge_to_source_target(df):
 
 
 def repeat_and_edgekey(df):
+    """Helper function to transform DiGraph into MultiDiGraph"""
     # repeat rows
     df.sort_values("Edge")
     df = df.reindex(df.index.repeat(df["number_edges"]))
@@ -53,26 +54,29 @@ def repeat_and_edgekey(df):
 
 
 def initialize_car_graph(result_df):
+    """Initial car graph is one with all the car capacity values rounded up"""
     df = result_df.copy()
     df = edge_to_source_target(df)
     # round the number of car edges for now
     df["number_edges"] = np.ceil(df["u_c(e)"])
     # get edge key:
     df = repeat_and_edgekey(df)
+    # construct graph
     G = nx.from_pandas_edgelist(df, source="source", target="target", create_using=nx.MultiDiGraph, edge_key="edge_key")
     return G
 
 
 def initialize_bike_graph(result_df):
+    """Initial bike graph is one with just the bike edges that are feasible given that car edges are rounded up"""
     bike_df = result_to_streets(result_df.copy()).reset_index()
     bike_df["car_cap_rounded"] = np.ceil(bike_df["u_c(e)"]) + np.ceil(bike_df["u_c(e)_reversed"])
+    # subtract current car edges (rounded) from the overall capacity
     bike_df["number_edges"] = bike_df["capacity"] - bike_df["car_cap_rounded"]
+    # initialize bike edges where possible
     bike_df = bike_df[bike_df["number_edges"] > 0]
-    #     print(len(bike_df))
     bike_df = repeat_and_edgekey(bike_df)
     bike_df = edge_to_source_target(bike_df)
-    #     print(len(bike_df))
-    #     bike_df
+    # construct graph
     G_bike = nx.from_pandas_edgelist(
         bike_df, source="source", target="target", create_using=nx.MultiGraph, edge_key="edge_key"
     )
@@ -80,13 +84,15 @@ def initialize_bike_graph(result_df):
 
 
 def iteratively_redistribute_edges(car_G, bike_G, unique_edges, stop_ub_zero=True):
+    """Main algorithm to assign edges"""
+
     def remove_uc_edge():
         car_G.remove_edge(*edge)
         if not nx.is_strongly_connected(car_G):
             car_G.add_edge(*edge)
             return False
         else:
-            #             print("Removed", edge)
+            # print("Removed", edge)
             return True
 
     def remove_reversed_edge():
@@ -95,7 +101,7 @@ def iteratively_redistribute_edges(car_G, bike_G, unique_edges, stop_ub_zero=Tru
             car_G.add_edge(edge[1], edge[0])
             return False
         else:
-            #             print("Removed", (edge[1], edge[0]))
+            # print("Removed", (edge[1], edge[0]))
             return True
 
     unique_edges.sort_values("u_b(e)", inplace=True, ascending=False)
@@ -118,7 +124,6 @@ def iteratively_redistribute_edges(car_G, bike_G, unique_edges, stop_ub_zero=Tru
 
         # if it worked for either of the directions
         if success:
-            #             print("Added", edge)
             bike_G.add_edge(*edge)
 
         assert bike_G.number_of_edges() + car_G.number_of_edges() == total_capacity
@@ -129,9 +134,12 @@ def iteratively_redistribute_edges(car_G, bike_G, unique_edges, stop_ub_zero=Tru
 
 
 def rounding_and_splitting(result_df):
+    # Initial car graph is one with all the car capacity values rounded up
     car_G = initialize_car_graph(result_df.copy())
     assert nx.is_strongly_connected(car_G)
+    # Initial bike graph is one with just the bike edges that are feasible given that car edges are rounded up
     bike_G = initialize_bike_graph(result_df.copy())
+    # get unique set of edges
     unique_edges = result_to_streets(result_df.copy())
 
     print("Start graph edges", bike_G.number_of_edges(), car_G.number_of_edges())
