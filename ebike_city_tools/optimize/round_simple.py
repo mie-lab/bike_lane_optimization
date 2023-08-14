@@ -3,7 +3,8 @@ import pandas as pd
 import numpy as np
 
 
-def result_to_streets(result_df):
+def result_to_streets(result_df_in):
+    result_df = result_df_in.copy()
     if type(result_df.iloc[0]["Edge"]) == str:
         result_df["Edge"] = result_df["Edge"].apply(eval)
     result_df["source<target"] = result_df["Edge"].apply(lambda x: x[0] < x[1])
@@ -30,6 +31,7 @@ def result_to_streets(result_df):
 
 
 def edge_to_source_target(df):
+    """Transforms on column called 'Edge' of a dataframe to two columns [source, target]"""
     if type(df.iloc[0]["Edge"]) == str:
         df["Edge"] = df["Edge"].apply(eval)
     df["source"] = df["Edge"].apply(lambda x: x[0])
@@ -53,7 +55,7 @@ def repeat_and_edgekey(df):
     return df
 
 
-def initialize_car_graph(result_df):
+def ceiled_car_graph(result_df):
     """Initial car graph is one with all the car capacity values rounded up"""
     df = result_df.copy()
     df = edge_to_source_target(df)
@@ -135,7 +137,7 @@ def iteratively_redistribute_edges(car_G, bike_G, unique_edges, stop_ub_zero=Tru
 
 def rounding_and_splitting(result_df):
     # Initial car graph is one with all the car capacity values rounded up
-    car_G = initialize_car_graph(result_df.copy())
+    car_G = ceiled_car_graph(result_df.copy())
     assert nx.is_strongly_connected(car_G)
     # Initial bike graph is one with just the bike edges that are feasible given that car edges are rounded up
     bike_G = initialize_bike_graph(result_df.copy())
@@ -145,4 +147,24 @@ def rounding_and_splitting(result_df):
     print("Start graph edges", bike_G.number_of_edges(), car_G.number_of_edges())
 
     bike_G, car_G = iteratively_redistribute_edges(car_G, bike_G, unique_edges, stop_ub_zero=True)
+    return bike_G, car_G
+
+
+def ceiled_bike_graph(result_df):
+    bike_df = result_to_streets(result_df.copy()).reset_index()
+    bike_df["number_edges"] = np.ceil(bike_df["u_b(e)"])
+    # initialize bike edges whenever ceiled value is greater zero
+    bike_df = bike_df[bike_df["number_edges"] > 0]
+    bike_df = repeat_and_edgekey(bike_df)
+    bike_df = edge_to_source_target(bike_df)
+    # construct graph
+    G_bike = nx.from_pandas_edgelist(
+        bike_df, source="source", target="target", create_using=nx.MultiGraph, edge_key="edge_key"
+    )
+    return G_bike
+
+
+def graph_from_integer_solution(result_df):
+    car_G = ceiled_car_graph(result_df.copy())
+    bike_G = ceiled_bike_graph(result_df.copy())
     return bike_G, car_G

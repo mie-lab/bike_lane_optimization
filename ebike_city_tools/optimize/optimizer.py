@@ -4,7 +4,7 @@ import networkx as nx
 from ebike_city_tools.random_graph import lane_to_street_graph
 from ebike_city_tools.optimize.utils import output_to_dataframe, flow_to_df
 from ebike_city_tools.optimize.linear_program import define_IP
-from ebike_city_tools.optimize.round_simple import rounding_and_splitting
+from ebike_city_tools.optimize.round_simple import rounding_and_splitting, graph_from_integer_solution
 
 
 class Optimizer:
@@ -46,7 +46,10 @@ class Optimizer:
         capacity_values = output_to_dataframe(self.lp, self.graph)
         print("Total number of lanes possible", capacity_values["capacity"].sum() / 2)
         # apply rounding
-        bike_G, car_G = rounding_founction(capacity_values.copy())
+        if self.integer_problem:
+            bike_G, car_G = graph_from_integer_solution(capacity_values)
+        else:
+            bike_G, car_G = rounding_founction(capacity_values.copy())
         assert nx.is_strongly_connected(car_G)
         print("Final graph edges", bike_G.number_of_edges(), car_G.number_of_edges())
         return bike_G, car_G
