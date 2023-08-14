@@ -24,7 +24,7 @@ if __name__ == "__main__":
     optim = Optimizer(graph=G, od_matrix=od, integer_problem=True)
     optim.init_lp()
     obj_value = optim.optimize()
-    dataframe_edge_cap, flow_df = optim.get_solution()
+    dataframe_edge_cap, flow_df = optim.get_solution(return_flow=True)
 
     flow_df.to_csv(os.path.join(OUT_PATH, "test_flow_solution.csv"), index=False)
     dataframe_edge_cap.to_csv(os.path.join(OUT_PATH, "test_lp_solution.csv"), index=False)

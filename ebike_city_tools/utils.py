@@ -16,25 +16,24 @@ def lossless_to_undirected(graph):
     return graph_undir
 
 
-def add_bike_and_car_time(G_city, bike_G, car_G):
+def add_bike_and_car_time(G_city, bike_G, car_G, shared_lane_factor=2):
     """
     Add two attributes to the graph G_city: biketime and cartime
     """
     bike_edges = bike_G.edges()
     car_edges = car_G.edges()
 
-    shared_lane_factor = 2
-
     # thought: can keep it a multigraph because we are iterating
     for u, v, k, attributes in G_city.edges(data=True, keys=True):
         e = (u, v, k)
 
-        # Car travel time: simply check whether the edge exists:
+        # 1) Car travel time: simply check whether the edge exists:
         if (u, v) in car_edges:
             G_city.edges[e]["cartime"] = attributes["distance"] / 30
         else:
             G_city.edges[e]["cartime"] = np.inf
 
+        # 2) Bike travel time
         # Case 1: There is a bike lane on this edge
         if (u, v) in bike_edges:
             if attributes["gradient"] > 0:
@@ -43,13 +42,13 @@ def add_bike_and_car_time(G_city, bike_G, car_G):
                 )  # at least 1kmh speed
             else:  # if gradient < 0, than speed must increase --> - * -
                 G_city.edges[e]["biketime"] = attributes["distance"] / (21.6 - 0.86 * attributes["gradient"])
-        # Case 2: There is no bike lane, but a car lane in the right direction
+        # Case 2: There is no bike lane, but a car lane in the right direction --> multiply with shared_lane_factor
         elif (u, v) in car_edges:
             if attributes["gradient"] > 0:
                 G_city.edges[e]["biketime"] = (
                     shared_lane_factor * attributes["distance"] / max([21.6 - 1.44 * attributes["gradient"], 1])
                 )  # at least 1kmh speed
-            else:  # if gradient < 0, than speed must increase --> - * -
+            else:
                 G_city.edges[e]["biketime"] = (
                     shared_lane_factor * attributes["distance"] / (21.6 - 0.86 * attributes["gradient"])
                 )

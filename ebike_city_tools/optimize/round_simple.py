@@ -2,6 +2,8 @@ import networkx as nx
 import pandas as pd
 import numpy as np
 
+from ebike_city_tools.utils import add_bike_and_car_time
+
 
 def result_to_streets(result_df_in):
     result_df = result_df_in.copy()
@@ -55,8 +57,11 @@ def repeat_and_edgekey(df):
     return df
 
 
-def ceiled_car_graph(result_df):
-    """Initial car graph is one with all the car capacity values rounded up"""
+def ceiled_car_graph_simple(result_df):
+    """
+    Deprecated! - did not consider special case where car lanes can increase over the capacity
+    Initial car graph is one with all the car capacity values rounded up
+    """
     df = result_df.copy()
     df = edge_to_source_target(df)
     # round the number of car edges for now
@@ -68,14 +73,52 @@ def ceiled_car_graph(result_df):
     return G
 
 
+def ceiled_car_graph(result_df):
+    def decrease_problematic(row):
+        diff = (row["u_c(e)"] + row["u_c(e)_reversed"]) - row["capacity"]
+        change_var = "u_c(e)" if row["u_c(e)"] > row["u_c(e)_reversed"] else "u_c(e)_reversed"
+        row[change_var] -= diff
+        return row
+
+    # transform into dataframe of undirected edges
+    street_df = result_to_streets(result_df.copy()).reset_index()
+    # ceil
+    street_df["u_c(e)"] = np.ceil(street_df["u_c(e)"])
+    street_df["u_c(e)_reversed"] = np.ceil(street_df["u_c(e)_reversed"])
+
+    # identify problematic rows and fix them
+    row_is_problem = street_df["u_c(e)"] + street_df["u_c(e)_reversed"] > street_df["capacity"]
+    fixed_rows = street_df[row_is_problem].apply(decrease_problematic, axis=1)
+    fixed_street_df = pd.concat([fixed_rows, street_df[~row_is_problem]])
+    # add source and target columns
+    fixed_street_df = edge_to_source_target(fixed_street_df)
+    # transform again into directed edge dataframe
+    uc = fixed_street_df[["u_c(e)", "source", "target"]].rename({"u_c(e)": "number_edges"}, axis=1)
+    uc_reversed = fixed_street_df[["u_c(e)_reversed", "source", "target"]].rename(
+        {"u_c(e)_reversed": "number_edges", "source": "target", "target": "source"}, axis=1
+    )
+    directed_list = pd.concat([uc, uc_reversed]).reset_index(drop=True)
+    # add edge
+    directed_list["Edge"] = directed_list.apply(lambda x: (int(x["source"]), int(x["target"])), axis=1)
+    # get edge keys for nx graph
+    edge_df_for_graph = repeat_and_edgekey(directed_list)
+
+    # construct graph
+    G = nx.from_pandas_edgelist(
+        edge_df_for_graph, source="source", target="target", create_using=nx.MultiDiGraph, edge_key="edge_key"
+    )
+    return G
+
+
 def initialize_bike_graph(result_df):
     """Initial bike graph is one with just the bike edges that are feasible given that car edges are rounded up"""
-    bike_df = result_to_streets(result_df.copy()).reset_index()
-    bike_df["car_cap_rounded"] = np.ceil(bike_df["u_c(e)"]) + np.ceil(bike_df["u_c(e)_reversed"])
+    # transform from (Edge_dir, u_b, u_c, capacity) into (Edge_undir, u_b, u_c, u_c_reversed capacity)
+    street_df = result_to_streets(result_df.copy()).reset_index()
+    street_df["car_cap_rounded"] = np.ceil(street_df["u_c(e)"]) + np.ceil(street_df["u_c(e)_reversed"])
     # subtract current car edges (rounded) from the overall capacity
-    bike_df["number_edges"] = bike_df["capacity"] - bike_df["car_cap_rounded"]
+    street_df["number_edges"] = street_df["capacity"] - street_df["car_cap_rounded"]
     # initialize bike edges where possible
-    bike_df = bike_df[bike_df["number_edges"] > 0]
+    bike_df = street_df[street_df["number_edges"] > 0]
     bike_df = repeat_and_edgekey(bike_df)
     bike_df = edge_to_source_target(bike_df)
     # construct graph
@@ -85,7 +128,7 @@ def initialize_bike_graph(result_df):
     return G_bike
 
 
-def iteratively_redistribute_edges(car_G, bike_G, unique_edges, stop_ub_zero=True):
+def iteratively_redistribute_edges(car_G, bike_G, unique_edges, stop_ub_zero=True, bike_edges_to_add=None):
     """Main algorithm to assign edges"""
 
     def remove_uc_edge():
@@ -109,6 +152,7 @@ def iteratively_redistribute_edges(car_G, bike_G, unique_edges, stop_ub_zero=Tru
     unique_edges.sort_values("u_b(e)", inplace=True, ascending=False)
     total_capacity = unique_edges["capacity"].sum()
 
+    edges_added_counter = 0
     for edge, row in unique_edges.iterrows():
         if edge in bike_G.edges():
             continue
@@ -127,10 +171,17 @@ def iteratively_redistribute_edges(car_G, bike_G, unique_edges, stop_ub_zero=Tru
         # if it worked for either of the directions
         if success:
             bike_G.add_edge(*edge)
+            edges_added_counter += 1
 
-        assert bike_G.number_of_edges() + car_G.number_of_edges() == total_capacity
+        assert (
+            bike_G.number_of_edges() + car_G.number_of_edges() == total_capacity
+        ), f"Error at {edges_added_counter} with {bike_G.number_of_edges()}, {car_G.number_of_edges()}, {total_capacity}"
 
-        if stop_ub_zero and row["u_b(e)"] == 0:
+        # first stopping option: we added as many bike edges as we wanted to
+        if bike_edges_to_add is not None and edges_added_counter >= bike_edges_to_add:
+            break
+        # second stopping option: we add all bike edges that are not zero capacity (when possible without disconnecting)
+        if stop_ub_zero and row["u_b(e)"] == 0 and bike_edges_to_add is None:
             break
     return bike_G, car_G
 
@@ -151,6 +202,7 @@ def rounding_and_splitting(result_df):
 
 
 def ceiled_bike_graph(result_df):
+    """Generate bike graph from capacity values"""
     bike_df = result_to_streets(result_df.copy()).reset_index()
     bike_df["number_edges"] = np.ceil(bike_df["u_b(e)"])
     # initialize bike edges whenever ceiled value is greater zero
@@ -165,6 +217,54 @@ def ceiled_bike_graph(result_df):
 
 
 def graph_from_integer_solution(result_df):
+    """
+    Derive the bike and car graphs from the capacity dataframe
+    capacity_df: Dataframe with columns (Edge, u_b(e), u_c(e))
+    """
     car_G = ceiled_car_graph(result_df.copy())
     bike_G = ceiled_bike_graph(result_df.copy())
     return bike_G, car_G
+
+
+def pareto_frontier(G_original, capacity_values, shared_lane_factor, return_list=False):
+    """
+    Round with different cutoffs and thereby compute pareto frontier
+    capacity_values: pd.DataFrame
+    """
+    G_city = G_original.copy()
+    pareto_df = []
+
+    # Initial car graph is one with all the car capacity values rounded up
+    car_G_init = ceiled_car_graph(capacity_values.copy())
+    assert nx.is_strongly_connected(car_G_init)
+
+    # Initial bike graph is one with just the bike edges that are feasible given that car edges are rounded up
+    bike_G_init = initialize_bike_graph(capacity_values.copy())
+    # get unique set of edges
+    unique_edges = result_to_streets(capacity_values.copy())
+    print("Start graph edges", bike_G_init.number_of_edges(), car_G_init.number_of_edges())
+
+    # compute number of edges that we could redistribute
+    num_edges_redistribute = len([edge for edge, _ in unique_edges.iterrows() if edge in bike_G_init.edges()])
+
+    for bike_edges_to_add in range(num_edges_redistribute):
+        # copy graphs
+        car_G = car_G_init.copy()
+        bike_G = bike_G_init.copy()
+        # perform rounding with cutoff point
+        bike_G, car_G = iteratively_redistribute_edges(
+            car_G, bike_G, unique_edges, stop_ub_zero=True, bike_edges_to_add=bike_edges_to_add
+        )
+
+        # transform the graph layout into travel times, including gradient and penalty factor for using
+        # car lanes by bike
+        G_city = add_bike_and_car_time(G_city, bike_G, car_G, shared_lane_factor)
+        # measure weighted times (floyd-warshall)
+        bike_travel_time = np.mean(pd.DataFrame(nx.floyd_warshall(G_city, weight="biketime")).values)
+        car_travel_time = np.mean(pd.DataFrame(nx.floyd_warshall(G_city, weight="cartime")).values)
+        pareto_df.append(
+            {"bike_edges_added": bike_edges_to_add, "bike_time": bike_travel_time, "car_time": car_travel_time}
+        )
+    if return_list:
+        return pareto_df
+    return pd.DataFrame(pareto_df)

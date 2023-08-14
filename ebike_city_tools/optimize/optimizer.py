@@ -54,10 +54,12 @@ class Optimizer:
         print("Final graph edges", bike_G.number_of_edges(), car_G.number_of_edges())
         return bike_G, car_G
 
-    def get_solution(self):
+    def get_solution(self, return_flow=False):
         dataframe_edge_cap = output_to_dataframe(self.lp, self.graph)
-        flow_df = flow_to_df(self.lp, list(self.graph.edges))
-        return dataframe_edge_cap, flow_df
+        if return_flow:
+            flow_df = flow_to_df(self.lp, list(self.graph.edges))
+            return dataframe_edge_cap, flow_df
+        return dataframe_edge_cap
 
 
 def run_optimization(graph, od=None):
