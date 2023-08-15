@@ -1,5 +1,6 @@
 import networkx as nx
 import numpy as np
+import pandas as pd
 
 
 def lossless_to_undirected(graph):
@@ -14,6 +15,52 @@ def lossless_to_undirected(graph):
     graph_undir = nx.MultiGraph(graph_unwo_edges)
     graph_undir.add_edges_from(edges)
     return graph_undir
+
+
+def extend_od_matrix(od, nodes):
+    """
+    Extend the OD matrix such that every node appears as s and every node appears as t
+    od: initial OD matrix, represented as a pd.Dataframe
+    nodes: list of nodes in the graph
+    """
+
+    def get_missing_nodes(od_df):
+        nodes_not_in_s = [n for n in nodes if n not in od_df["s"].values]
+        nodes_not_in_t = [n for n in nodes if n not in od_df["t"].values]
+        return nodes_not_in_s, nodes_not_in_t
+
+    # find missing nodes
+    nodes_not_in_s, nodes_not_in_t = get_missing_nodes(od)
+    min_len = min([len(nodes_not_in_s), len(nodes_not_in_t)])
+    len_diff = max([len(nodes_not_in_s), len(nodes_not_in_t)]) - min_len
+    # combine every node of the longer list with a random permutation of the smaller list and add up
+    if min_len == len(nodes_not_in_t):
+        shuffled_t = np.random.permutation(nodes_not_in_t)
+        combined_nodes = np.concatenate(
+            [
+                np.stack([nodes_not_in_s[:min_len], shuffled_t]),
+                np.stack([nodes_not_in_s[min_len:], shuffled_t[:len_diff]]),
+            ],
+            axis=1,
+        )
+    else:
+        shuffled_s = np.random.permutation(nodes_not_in_s)
+        combined_nodes = np.concatenate(
+            [
+                np.stack([nodes_not_in_t[:min_len], shuffled_s]),
+                np.stack([nodes_not_in_t[min_len:], shuffled_s[:len_diff]]),
+            ],
+            axis=1,
+        )
+    # transform to dataframe
+    new_od_paths = pd.DataFrame(combined_nodes.swapaxes(1, 0), columns=["s", "t"])
+    # concat and add a flow value of 1
+    od_new = pd.concat([od, new_od_paths]).fillna(1)
+
+    # check again
+    nodes_not_in_s, nodes_not_in_t = get_missing_nodes(od_new)
+    assert len(nodes_not_in_s) == 0 and len(nodes_not_in_t) == 0
+    return od_new
 
 
 def add_bike_and_car_time(G_city, bike_G, car_G, shared_lane_factor=2):

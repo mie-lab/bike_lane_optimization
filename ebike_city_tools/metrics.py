@@ -31,6 +31,22 @@ def closeness(G):
     return np.mean(list(nx.closeness_centrality(G).values()))
 
 
+def od_sp(G, od, weight, weighted_by_flow=False):
+    """
+    Compute shortest paths of the OD matrix, potentially weighted by the flow
+    G: graph with edge attribute <weight>
+    od: pd.DataFrame with columns s, t, row
+    weight: str, name of the column with the attribute to minimize
+    """
+    sp = []
+    for _, row in od.iterrows():
+        sp_len = nx.shortest_path_length(G, source=row["s"], target=row["t"], weight=weight)
+        if weighted_by_flow:
+            sp_len *= row["flow"]
+        sp.append(sp_len)
+    return np.mean(sp)
+
+
 # def centrality_metrics(G):
 #     metric_dict = {}
 #     metric_dict["closeness"] = np.mean(list(nx.closeness_centrality(G).values()))

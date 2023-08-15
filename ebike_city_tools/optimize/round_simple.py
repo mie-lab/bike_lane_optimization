@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 
 from ebike_city_tools.utils import add_bike_and_car_time
+from ebike_city_tools.metrics import od_sp
 
 
 def result_to_streets(result_df_in):
@@ -226,11 +227,15 @@ def graph_from_integer_solution(result_df):
     return bike_G, car_G
 
 
-def pareto_frontier(G_original, capacity_values, shared_lane_factor, return_list=False):
+def pareto_frontier(
+    G_original, capacity_values, shared_lane_factor, return_list=False, sp_method="all_pairs", od_matrix=None
+):
     """
     Round with different cutoffs and thereby compute pareto frontier
     capacity_values: pd.DataFrame
+    sp_method: str, one of {all_pairs, od} - compute the all pairs shortest paths or only on the OD matrix
     """
+    assert sp_method == "all_pairs" or od_matrix is None
     G_city = G_original.copy()
     pareto_df = []
 
@@ -244,8 +249,9 @@ def pareto_frontier(G_original, capacity_values, shared_lane_factor, return_list
     unique_edges = result_to_streets(capacity_values.copy())
     print("Start graph edges", bike_G_init.number_of_edges(), car_G_init.number_of_edges())
 
-    # compute number of edges that we could redistribute
+    # compute number of edges that we could redistribute (all the undirected edges that are not part of bike_G yet)
     num_edges_redistribute = len([edge for edge, _ in unique_edges.iterrows() if edge in bike_G_init.edges()])
+    print("Number edges to maximally add", num_edges_redistribute)
 
     for bike_edges_to_add in range(num_edges_redistribute):
         # copy graphs
@@ -260,8 +266,12 @@ def pareto_frontier(G_original, capacity_values, shared_lane_factor, return_list
         # car lanes by bike
         G_city = add_bike_and_car_time(G_city, bike_G, car_G, shared_lane_factor)
         # measure weighted times (floyd-warshall)
-        bike_travel_time = np.mean(pd.DataFrame(nx.floyd_warshall(G_city, weight="biketime")).values)
-        car_travel_time = np.mean(pd.DataFrame(nx.floyd_warshall(G_city, weight="cartime")).values)
+        if sp_method == "od":
+            bike_travel_time = od_sp(G_city, od_matrix, weight="biketime")
+            car_travel_time = od_sp(G_city, od_matrix, weight="cartime")
+        else:
+            bike_travel_time = np.mean(pd.DataFrame(nx.floyd_warshall(G_city, weight="biketime")).values)
+            car_travel_time = np.mean(pd.DataFrame(nx.floyd_warshall(G_city, weight="cartime")).values)
         pareto_df.append(
             {"bike_edges_added": bike_edges_to_add, "bike_time": bike_travel_time, "car_time": car_travel_time}
         )

@@ -1,9 +1,10 @@
 import time
 import os
 import pandas as pd
-from ebike_city_tools.random_graph import city_graph, lane_to_street_graph
 from ebike_city_tools.optimize.utils import make_fake_od, output_to_dataframe, flow_to_df
 from ebike_city_tools.optimize.linear_program import define_IP
+from ebike_city_tools.utils import extend_od_matrix
+from ebike_city_tools.optimize.round_simple import pareto_frontier
 import numpy as np
 import geopandas as gpd
 import networkx as nx
@@ -42,6 +43,10 @@ def table_to_graph(
 
 if __name__ == "__main__":
     path = "../street_network_data/ressources_aurelien"
+    shared_lane_factor = 2
+    FLOW_CONSTANT = 1  # how much flow to send through a path (set to 0.9 since street width is oftentimes 1.8)
+    OUT_PATH = "outputs"
+    os.makedirs(OUT_PATH, exist_ok=True)
 
     # load OD
     od = pd.read_csv(os.path.join(path, "od_matrix_zolliker.csv"))
@@ -52,8 +57,15 @@ if __name__ == "__main__":
     nodes = gpd.read_file(os.path.join(path, "nodes_all_attributes.gpkg")).set_index("osmid")
     edges = gpd.read_file(os.path.join(path, "edges_all_attributes.gpkg"))
     edges = edges[["u", "v", "width_total_m", "maxspeed", "lanes", "length"]]
+    # remove the ones with start and end at the same point
+    edges = edges[edges["u"] != edges["v"]]
+    # there are many 1.8 and 0.9 wide streets -> transform into 1 and 2 lane streets
+    edges["width_total_m"] = edges["width_total_m"].round()  # TODO
     # fill nans of the capacity with 1
     # edges["lanes"] = edges["lanes"].fillna(1)
+
+    # extend OD matrix because otherwise we get disconnected car graph
+    od = extend_od_matrix(od, list(nodes.index))
 
     # # making a subgraph only disconnects the graoh
     # nodes = nodes.sample(200)
@@ -76,7 +88,14 @@ if __name__ == "__main__":
     assert nx.is_strongly_connected(G), "G not connected"
 
     tic = time.time()
-    ip = define_IP(G, cap_factor=1, od_df=od, bike_flow_constant=0.9, car_flow_constant=0.9)
+    ip = define_IP(
+        G,
+        cap_factor=1,
+        od_df=od,
+        bike_flow_constant=FLOW_CONSTANT,
+        car_flow_constant=FLOW_CONSTANT,
+        shared_lane_factor=shared_lane_factor,
+    )
     toc = time.time()
     print("Finish init", toc - tic)
     ip.optimize()
@@ -85,7 +104,12 @@ if __name__ == "__main__":
     print("OPT VALUE", ip.objective_value)
 
     # nx.write_gpickle(G, "outputs/real_G.gpickle")
-    dataframe_edge_cap = output_to_dataframe(ip, G)
-    dataframe_edge_cap.to_csv("outputs/real_u_solution.csv", index=False)
+    capacity_values = output_to_dataframe(ip, G)
+    capacity_values.to_csv(os.path.join(OUT_PATH, "real_u_solution.csv"), index=False)
     flow_df = flow_to_df(ip, list(G.edges))
-    flow_df.to_csv("outputs/real_flow_solution.csv", index=False)
+    flow_df.to_csv(os.path.join(OUT_PATH, "real_flow_solution.csv"), index=False)
+
+    # compute the paretor frontier
+    G_city = nx.MultiDiGraph(G)  # TODO
+    pareto_df = pareto_frontier(G_city, capacity_values, shared_lane_factor=shared_lane_factor)
+    pareto_df.to_csv(os.path.join(OUT_PATH, "real_pareto_df.csv", index=False))
