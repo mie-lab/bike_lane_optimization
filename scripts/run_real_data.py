@@ -111,5 +111,7 @@ if __name__ == "__main__":
 
     # compute the paretor frontier
     G_city = nx.MultiDiGraph(G)  # TODO
-    pareto_df = pareto_frontier(G_city, capacity_values, shared_lane_factor=shared_lane_factor)
-    pareto_df.to_csv(os.path.join(OUT_PATH, "real_pareto_df.csv", index=False))
+    pareto_df = pareto_frontier(
+        G_city, capacity_values, shared_lane_factor=shared_lane_factor, sp_method="od", od_matrix=od
+    )
+    pareto_df.to_csv(os.path.join(OUT_PATH, "real_pareto_df.csv"), index=False)

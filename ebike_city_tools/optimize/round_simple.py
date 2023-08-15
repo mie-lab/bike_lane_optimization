@@ -235,7 +235,7 @@ def pareto_frontier(
     capacity_values: pd.DataFrame
     sp_method: str, one of {all_pairs, od} - compute the all pairs shortest paths or only on the OD matrix
     """
-    assert sp_method == "all_pairs" or od_matrix is None
+    assert sp_method != "od" or od_matrix is not None
     G_city = G_original.copy()
     pareto_df = []
 
