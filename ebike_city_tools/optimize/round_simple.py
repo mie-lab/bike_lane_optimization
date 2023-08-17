@@ -184,6 +184,7 @@ def iteratively_redistribute_edges(car_G, bike_G, unique_edges, stop_ub_zero=Tru
         # second stopping option: we add all bike edges that are not zero capacity (when possible without disconnecting)
         if stop_ub_zero and row["u_b(e)"] == 0 and bike_edges_to_add is None:
             break
+    assert nx.is_strongly_connected(car_G)
     return bike_G, car_G
 
 
@@ -250,20 +251,21 @@ def pareto_frontier(
     print("Start graph edges", bike_G_init.number_of_edges(), car_G_init.number_of_edges())
 
     # compute number of edges that we could redistribute (all the undirected edges that are not part of bike_G yet)
-    num_edges_redistribute = len([edge for edge, _ in unique_edges.iterrows() if edge in bike_G_init.edges()])
+    num_edges_redistribute = len([edge for edge, _ in unique_edges.iterrows() if edge not in bike_G_init.edges()])
     print("Number edges to maximally add", num_edges_redistribute)
 
-    num_bike_edges = 0
-    for bike_edges_to_add in range(num_edges_redistribute):
+    num_bike_edges = -1
+    for bike_edges_to_add in range(num_edges_redistribute + 1):
         # copy graphs
         car_G = car_G_init.copy()
         bike_G = bike_G_init.copy()
         # perform rounding with cutoff point
-        bike_G, car_G = iteratively_redistribute_edges(
-            car_G, bike_G, unique_edges, stop_ub_zero=True, bike_edges_to_add=bike_edges_to_add
-        )
+        if bike_edges_to_add > 0:
+            bike_G, car_G = iteratively_redistribute_edges(
+                car_G, bike_G, unique_edges, stop_ub_zero=True, bike_edges_to_add=bike_edges_to_add
+            )
         # check whether we already had this number of bike edges -> finished
-        if bike_G.number_of_edges() == num_bike_edges:
+        if bike_G.number_of_edges() == num_bike_edges and bike_edges_to_add > 1:
             print("Early stopping at iteration", bike_edges_to_add)
             break
         num_bike_edges = bike_G.number_of_edges()
@@ -279,7 +281,13 @@ def pareto_frontier(
             bike_travel_time = np.mean(pd.DataFrame(nx.floyd_warshall(G_lane, weight="biketime")).values)
             car_travel_time = np.mean(pd.DataFrame(nx.floyd_warshall(G_lane, weight="cartime")).values)
         pareto_df.append(
-            {"bike_edges_added": bike_edges_to_add, "bike_time": bike_travel_time, "car_time": car_travel_time}
+            {
+                "bike_edges_added": bike_edges_to_add,
+                "bike_edges": bike_G.number_of_edges(),
+                "car_edges": car_G.number_of_edges(),
+                "bike_time": bike_travel_time,
+                "car_time": car_travel_time,
+            }
         )
     if return_list:
         return pareto_df

@@ -164,8 +164,9 @@ if __name__ == "__main__":
     # nx.write_gpickle(G, "outputs/real_G.gpickle")
     capacity_values = output_to_dataframe(ip, G_street)
     capacity_values.to_csv(os.path.join(OUT_PATH, "real_u_solution.csv"), index=False)
-    flow_df = flow_to_df(ip, list(G_street.edges))
-    flow_df.to_csv(os.path.join(OUT_PATH, "real_flow_solution.csv"), index=False)
+    del ip
+    # flow_df = flow_to_df(ip, list(G_street.edges))
+    # flow_df.to_csv(os.path.join(OUT_PATH, "real_flow_solution.csv"), index=False)
 
     # compute the paretor frontier
     tic = time.time()
