@@ -236,7 +236,7 @@ def pareto_frontier(
     sp_method: str, one of {all_pairs, od} - compute the all pairs shortest paths or only on the OD matrix
     """
     assert sp_method != "od" or od_matrix is not None
-    G_city = G_original.copy()
+    G_lane = G_original.copy()
     pareto_df = []
 
     # Initial car graph is one with all the car capacity values rounded up
@@ -253,6 +253,7 @@ def pareto_frontier(
     num_edges_redistribute = len([edge for edge, _ in unique_edges.iterrows() if edge in bike_G_init.edges()])
     print("Number edges to maximally add", num_edges_redistribute)
 
+    num_bike_edges = 0
     for bike_edges_to_add in range(num_edges_redistribute):
         # copy graphs
         car_G = car_G_init.copy()
@@ -261,17 +262,22 @@ def pareto_frontier(
         bike_G, car_G = iteratively_redistribute_edges(
             car_G, bike_G, unique_edges, stop_ub_zero=True, bike_edges_to_add=bike_edges_to_add
         )
+        # check whether we already had this number of bike edges -> finished
+        if bike_G.number_of_edges() == num_bike_edges:
+            print("Early stopping at iteration", bike_edges_to_add)
+            break
+        num_bike_edges = bike_G.number_of_edges()
 
         # transform the graph layout into travel times, including gradient and penalty factor for using
         # car lanes by bike
-        G_city = add_bike_and_car_time(G_city, bike_G, car_G, shared_lane_factor)
+        G_lane = add_bike_and_car_time(G_lane, bike_G, car_G, shared_lane_factor)
         # measure weighted times (floyd-warshall)
         if sp_method == "od":
-            bike_travel_time = od_sp(G_city, od_matrix, weight="biketime")
-            car_travel_time = od_sp(G_city, od_matrix, weight="cartime")
+            bike_travel_time = od_sp(G_lane, od_matrix, weight="biketime")
+            car_travel_time = od_sp(G_lane, od_matrix, weight="cartime")
         else:
-            bike_travel_time = np.mean(pd.DataFrame(nx.floyd_warshall(G_city, weight="biketime")).values)
-            car_travel_time = np.mean(pd.DataFrame(nx.floyd_warshall(G_city, weight="cartime")).values)
+            bike_travel_time = np.mean(pd.DataFrame(nx.floyd_warshall(G_lane, weight="biketime")).values)
+            car_travel_time = np.mean(pd.DataFrame(nx.floyd_warshall(G_lane, weight="cartime")).values)
         pareto_df.append(
             {"bike_edges_added": bike_edges_to_add, "bike_time": bike_travel_time, "car_time": car_travel_time}
         )

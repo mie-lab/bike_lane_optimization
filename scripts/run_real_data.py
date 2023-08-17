@@ -3,17 +3,20 @@ import os
 import pandas as pd
 from ebike_city_tools.optimize.utils import make_fake_od, output_to_dataframe, flow_to_df
 from ebike_city_tools.optimize.linear_program import define_IP
-from ebike_city_tools.utils import extend_od_matrix
+from ebike_city_tools.utils import extend_od_matrix, lane_to_street_graph
 from ebike_city_tools.optimize.round_simple import pareto_frontier
 import numpy as np
 import geopandas as gpd
 import networkx as nx
+from snman import distribution, street_graph, graph_utils, io, merge_edges
+from snman.constants import *
 
 
-def table_to_graph(
+def deprecated_table_to_graph(
     edge_table, node_table=None, edge_attributes={"width_total_m": "capacity"}, node_attributes={"geometry": "location"}
 ):
     """
+    DEPRECATED
     edge_table: pd.DataFrame with columns u, v, and the required edge attributes
     node_table (Optional): table with the node id as the index column and the edge id as the
     edge_attributes: Dictionary of the form {columns-name-in-table : desired-attribute_name-in-graph}
@@ -41,18 +44,7 @@ def table_to_graph(
     return G
 
 
-if __name__ == "__main__":
-    path = "../street_network_data/ressources_aurelien"
-    shared_lane_factor = 2
-    FLOW_CONSTANT = 1  # how much flow to send through a path (set to 0.9 since street width is oftentimes 1.8)
-    OUT_PATH = "outputs"
-    os.makedirs(OUT_PATH, exist_ok=True)
-
-    # load OD
-    od = pd.read_csv(os.path.join(path, "od_matrix_zolliker.csv"))
-    od.rename({"osmid_origin": "s", "osmid_destination": "t"}, inplace=True, axis=1)
-    od = od[od["s"] != od["t"]]
-
+def deprecated_load_graph(path):
     # load nodes and edges
     nodes = gpd.read_file(os.path.join(path, "nodes_all_attributes.gpkg")).set_index("osmid")
     edges = gpd.read_file(os.path.join(path, "edges_all_attributes.gpkg"))
@@ -64,16 +56,6 @@ if __name__ == "__main__":
     # fill nans of the capacity with 1
     # edges["lanes"] = edges["lanes"].fillna(1)
 
-    # extend OD matrix because otherwise we get disconnected car graph
-    od = extend_od_matrix(od, list(nodes.index))
-
-    # # making a subgraph only disconnects the graoh
-    # nodes = nodes.sample(200)
-    # edges = edges[edges["u"].isin(nodes.index)]
-    # edges = edges[edges["v"].isin(nodes.index)]
-    # od = od[od["s"].isin(nodes.index)]
-    # od = od[od["t"].isin(nodes.index)]
-
     # compute gradient
     gradient = []
     for i in range(len(edges)):
@@ -83,13 +65,89 @@ if __name__ == "__main__":
     edges["gradient"] = gradient
 
     # construct graph
-    G = table_to_graph(edges, nodes, {"width_total_m": "capacity", "length": "distance", "gradient": "gradient"})
+    G = deprecated_table_to_graph(
+        edges, nodes, {"width_total_m": "capacity", "length": "distance", "gradient": "gradient"}
+    )
+    return G
 
-    assert nx.is_strongly_connected(G), "G not connected"
+
+def generate_motorized_lane_graph(
+    edge_path,
+    node_path,
+    source_lanes_attribute=KEY_LANES_DESCRIPTION,
+    target_lanes_attribute=KEY_LANES_DESCRIPTION_AFTER,
+):
+    G = io.load_street_graph(edge_path, node_path)  # initialize lanes after rebuild
+    nx.set_edge_attributes(G, nx.get_edge_attributes(G, source_lanes_attribute), target_lanes_attribute)
+    # ensure consistent edge directions
+    street_graph.organize_edge_directions(G)
+
+    distribution.set_given_lanes(G)
+    H = street_graph.filter_lanes_by_modes(G, {MODE_PRIVATE_CARS}, lane_description_key=KEY_GIVEN_LANES_DESCRIPTION)
+
+    merge_edges.reset_intermediate_nodes(H)
+    merge_edges.merge_consecutive_edges(H, distinction_attributes={KEY_LANES_DESCRIPTION_AFTER})
+    # make lane graph
+    L = street_graph.to_lane_graph(H, KEY_GIVEN_LANES_DESCRIPTION)
+    # make sure that the graph is strongly connected
+    L = graph_utils.keep_only_the_largest_connected_component(L)
+
+    # add capacity attribute to 1 for all lanes
+    nx.set_edge_attributes(L, 1, name="capacity")
+
+    # rename to distance
+    distances = nx.get_edge_attributes(L, "length")
+    nx.set_edge_attributes(L, distances, "distance")
+
+    # add gradient attribute
+    elevation_dict = nx.get_node_attributes(L, "elevation")
+    length_dict = nx.get_edge_attributes(L, "length")
+    gradient_attr = {}
+    for e in L.edges:
+        (u, v, _) = e
+        gradient_attr[e] = 100 * (elevation_dict[v] - elevation_dict[u]) / length_dict[e]
+    nx.set_edge_attributes(L, gradient_attr, name="gradient")
+
+    return L
+
+
+if __name__ == "__main__":
+    path = "../street_network_data/ressources_aurelien"
+    shared_lane_factor = 2
+    FLOW_CONSTANT = 1  # how much flow to send through a path (set to 0.9 since street width is oftentimes 1.8)
+    OUT_PATH = "outputs"
+    os.makedirs(OUT_PATH, exist_ok=True)
+
+    # generate lane graph with snman
+    G_lane = generate_motorized_lane_graph(
+        os.path.join(path, "edges_all_attributes.gpkg"), os.path.join(path, "nodes_all_attributes.gpkg")
+    )
+
+    # load OD
+    od = pd.read_csv(os.path.join(path, "od_matrix_zolliker.csv"))
+    od.rename({"osmid_origin": "s", "osmid_destination": "t"}, inplace=True, axis=1)
+    od = od[od["s"] != od["t"]]
+    # reduce OD matrix to nodes that are in G_lane
+    node_list = list(G_lane.nodes())
+    od = od[(od["s"].isin(node_list)) & (od["t"].isin(node_list))]
+
+    # extend OD matrix because otherwise we get disconnected car graph
+    od = extend_od_matrix(od, node_list)
+
+    # # making a subgraph only disconnects the graoh
+    # nodes = nodes.sample(200)
+    # edges = edges[edges["u"].isin(nodes.index)]
+    # edges = edges[edges["v"].isin(nodes.index)]
+    # od = od[od["s"].isin(nodes.index)]
+    # od = od[od["t"].isin(nodes.index)]
+
+    assert nx.is_strongly_connected(G_lane), "G not connected"
+
+    G_street = lane_to_street_graph(G_lane)
 
     tic = time.time()
     ip = define_IP(
-        G,
+        G_street,
         cap_factor=1,
         od_df=od,
         bike_flow_constant=FLOW_CONSTANT,
@@ -104,14 +162,15 @@ if __name__ == "__main__":
     print("OPT VALUE", ip.objective_value)
 
     # nx.write_gpickle(G, "outputs/real_G.gpickle")
-    capacity_values = output_to_dataframe(ip, G)
+    capacity_values = output_to_dataframe(ip, G_street)
     capacity_values.to_csv(os.path.join(OUT_PATH, "real_u_solution.csv"), index=False)
-    flow_df = flow_to_df(ip, list(G.edges))
+    flow_df = flow_to_df(ip, list(G_street.edges))
     flow_df.to_csv(os.path.join(OUT_PATH, "real_flow_solution.csv"), index=False)
 
     # compute the paretor frontier
-    G_city = nx.MultiDiGraph(G)  # TODO
+    tic = time.time()
     pareto_df = pareto_frontier(
-        G_city, capacity_values, shared_lane_factor=shared_lane_factor, sp_method="od", od_matrix=od
+        G_lane, capacity_values, shared_lane_factor=shared_lane_factor, sp_method="od", od_matrix=od
     )
+    print("Time pareto", time.time() - tic)
     pareto_df.to_csv(os.path.join(OUT_PATH, "real_pareto_df.csv"), index=False)

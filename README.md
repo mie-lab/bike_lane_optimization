@@ -36,3 +36,9 @@ python scripts/compare_algorithms.py
 ```
 
 Most scripts will save the results in the `outputs` folder.
+
+### Explanatory notes
+
+There are two types of graph structures used throughout the code:
+* lane graphs: nx.MultiDiGraph, usually denoted as G_lane, one directed edge per lane
+* street graphs: nx.DiGraph, usually denoted as G_street, two reciprocal edges per street (this is the input to the optimization algorithm)

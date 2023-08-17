@@ -3,10 +3,10 @@ import time
 import numpy as np
 import networkx as nx
 import pandas as pd
-from ebike_city_tools.random_graph import city_graph, lane_to_street_graph
+from ebike_city_tools.random_graph import random_lane_graph
 from ebike_city_tools.optimize.utils import make_fake_od
 from ebike_city_tools.optimize.optimizer import Optimizer
-from ebike_city_tools.utils import add_bike_and_car_time
+from ebike_city_tools.utils import add_bike_and_car_time, lane_to_street_graph
 from ebike_city_tools.metrics import sp_length
 from ebike_city_tools.optimize.round_simple import ceiled_car_graph, pareto_frontier, graph_from_integer_solution
 
@@ -21,8 +21,8 @@ if __name__ == "__main__":
     for i in range(NR_ITERS):
         # test different number of nodes
         for size in np.arange(30, 50, 10):
-            G_city = city_graph(size)
-            G = lane_to_street_graph(G_city)
+            G_lane = random_lane_graph(size)
+            G = lane_to_street_graph(G_lane)
             # test for graphs with OD matrix of 2 times, 3 times, or 4 times as many entries as the number of nodes
             for od_factor in [3, 4, 5]:
                 # define graph
@@ -50,15 +50,15 @@ if __name__ == "__main__":
                     if integer_problem:
                         bike_G, car_G = graph_from_integer_solution(capacity_values)
                         # car lanes by bike
-                        G_city = add_bike_and_car_time(G_city, bike_G, car_G, shared_lane_factor)
+                        G_lane = add_bike_and_car_time(G_lane, bike_G, car_G, shared_lane_factor)
                         # measure weighted times (floyd-warshall)
-                        bike_travel_time = sp_length(G_city, attr="biketime")
-                        car_travel_time = sp_length(G_city, attr="cartime")
+                        bike_travel_time = sp_length(G_lane, attr="biketime")
+                        car_travel_time = sp_length(G_lane, attr="cartime")
                         res_dict_list = [{"bike_time": bike_travel_time, "car_time": car_travel_time}]
                     else:
                         # for linear, we have to compute the paretor frontier
                         res_dict_list = pareto_frontier(
-                            G_city, capacity_values, shared_lane_factor=shared_lane_factor, return_list=True
+                            G_lane, capacity_values, shared_lane_factor=shared_lane_factor, return_list=True
                         )
                     # add general infos to integer or linear (pareto) solution
                     for r in res_dict_list:

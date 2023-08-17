@@ -32,7 +32,7 @@ for i in range(ITERS_TEST):
     df = pd.DataFrame(index=list(algorithm_dict.keys()) + ["original"], columns=bike_car_metrics + ["runtime"])
 
     # generate a random (street-network realistic) graph
-    base_graph = city_graph()  # generate_base_graph()
+    base_graph = random_lane_graph()  # generate_base_graph()
 
     # Run all algorithms on this base graph and generate bike and car graph
     for algorithm in algorithm_dict.keys():
@@ -60,16 +60,16 @@ for i in range(ITERS_TEST):
             df.loc[algorithm, "runtime"] = runtime
 
         # Compute weightest shortest path length for both
-        G_city = add_bike_and_car_time(base_graph, bike_graph, car_graph)
-        df.loc[algorithm, "bike_travel_time"] = sp_length(G_city, attr="biketime")
-        df.loc[algorithm, "car_travel_time"] = sp_length(G_city, attr="cartime")
+        G_lane = add_bike_and_car_time(base_graph, bike_graph, car_graph)
+        df.loc[algorithm, "bike_travel_time"] = sp_length(G_lane, attr="biketime")
+        df.loc[algorithm, "car_travel_time"] = sp_length(G_lane, attr="cartime")
 
         # add metrics for original graph (pretending that we did not subtract any car lanes)
         for metric in metrics_for_eval:
             df.loc["original", "car_" + metric] = eval(metric)(base_graph)
             df.loc["original", "runtime"] = 0
-            G_city = add_bike_and_car_time(base_graph, nx.Graph(), base_graph)
-            df.loc["original", "car_travel_time"] = sp_length(G_city, attr="cartime")
+            G_lane = add_bike_and_car_time(base_graph, nx.Graph(), base_graph)
+            df.loc["original", "car_travel_time"] = sp_length(G_lane, attr="cartime")
             # df.loc["original", "bike_" + metric] = 0 # could fill with 0 for some metrics and inf for others
 
     df.index.name = "Method"

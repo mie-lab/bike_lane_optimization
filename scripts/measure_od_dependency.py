@@ -3,7 +3,8 @@ import time
 import numpy as np
 import networkx as nx
 import pandas as pd
-from ebike_city_tools.random_graph import city_graph, lane_to_street_graph
+from ebike_city_tools.random_graph import random_lane_graph
+from ebike_city_tools.utils import lane_to_street_graph
 from ebike_city_tools.optimize.utils import output_to_dataframe, flow_to_df, make_fake_od
 from ebike_city_tools.optimize.linear_program import define_IP
 from ebike_city_tools.optimize.round_simple import *
@@ -16,8 +17,8 @@ shared_lane_factor = 2  # factor how much more expensive it is to bike on a car 
 n = 20
 nr_trials = 10
 
-G_city = city_graph(n)
-G = lane_to_street_graph(G_city)
+G_lane = random_lane_graph(n)
+G = lane_to_street_graph(G_lane)
 # full od matrix
 od_full = pd.DataFrame(np.array([[i, j] for i in range(n) for j in range(n)]), columns=["s", "t"])
 

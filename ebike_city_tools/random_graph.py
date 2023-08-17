@@ -113,13 +113,13 @@ def get_city_coords(n=20):
     return coords.astype(int)
 
 
-def city_graph(n=20, neighbor_choices=[2, 3, 4], neighbor_p=[0.6, 0.3, 0.1]):
+def random_lane_graph(n=20, neighbor_choices=[2, 3, 4], neighbor_p=[0.6, 0.3, 0.1]):
     """
     Create realistic city graph with coordinates, elevation, etc
     Returns: MultiDiGraph with attributes width, distance, gradient -> one edge per lane!
     """
     # init graph
-    G = nx.MultiDiGraph()
+    G_lane = nx.MultiDiGraph()
 
     # define node coordinates
     coords = get_city_coords(n)
@@ -143,60 +143,15 @@ def city_graph(n=20, neighbor_choices=[2, 3, 4], neighbor_p=[0.6, 0.3, 0.1]):
             # (From paper: for every additional 1% of uphill gradient,
             # the mean speed is reduced by 0.4002 m/s (1.44 kph))
             # --> meters in height / (dist * 1000) * 100
-            edge_list.append([node_ids[i], node_ids[neigh], {"width": 1, "distance": dist, "gradient": gradient}])
-            edge_list.append([node_ids[neigh], node_ids[i], {"width": 1, "distance": dist, "gradient": -gradient}])
-    G.add_edges_from(edge_list)
+            edge_list.append([node_ids[i], node_ids[neigh], {"capacity": 1, "distance": dist, "gradient": gradient}])
+            edge_list.append([node_ids[neigh], node_ids[i], {"capacity": 1, "distance": dist, "gradient": -gradient}])
+    G_lane.add_edges_from(edge_list)
 
     # set attributes
     attrs = {node_ids[i]: {"loc": coords[i]} for i in range(n)}
-    nx.set_node_attributes(G, attrs)
+    nx.set_node_attributes(G_lane, attrs)
 
-    if not nx.is_strongly_connected(G):
-        return city_graph(n=n, neighbor_choices=neighbor_choices, neighbor_p=neighbor_p)
+    if not nx.is_strongly_connected(G_lane):
+        return random_lane_graph(n=n, neighbor_choices=neighbor_choices, neighbor_p=neighbor_p)
 
-    return nx.MultiDiGraph(G)
-
-
-def lane_to_street_graph(G_city):
-    # convert to dataframe
-    G_dataframe = nx.to_pandas_edgelist(G_city)
-    assert all(G_dataframe["source"] != G_dataframe["target"])
-    G_dataframe["source undir"] = G_dataframe[["source", "target"]].min(axis=1)
-    G_dataframe["target undir"] = G_dataframe[["source", "target"]].max(axis=1)
-    # G_dataframe.apply(lambda x: tuple(sorted([x["source"], x["target"]])), axis=1)
-    # aggregate to get undirected
-    undirected_edges = G_dataframe.groupby(["source undir", "target undir"]).agg({"width": "sum", "distance": "first"})
-
-    # generate gradient first only for the ones where source < target
-    grad_per_dir_edge = G_dataframe.groupby(["source", "target"])["gradient"].first().reset_index()
-    grad_per_dir_edge = grad_per_dir_edge[grad_per_dir_edge["target"] > grad_per_dir_edge["source"]]
-    undirected_edges["gradient"] = grad_per_dir_edge.set_index(["source", "target"]).to_dict()["gradient"]
-
-    # make the same edges in the reverse direction -> gradient * (-1)
-    reverse_edges = undirected_edges.reset_index()
-    reverse_edges["source"] = reverse_edges["target undir"]
-    reverse_edges["target"] = reverse_edges["source undir"]
-    reverse_edges["gradient"] = reverse_edges["gradient"] * (-1)
-    # concatenate
-    directed_edges = (
-        pd.concat(
-            [
-                undirected_edges.reset_index().rename({"source undir": "source", "target undir": "target"}, axis=1),
-                reverse_edges.drop(["source undir", "target undir"], axis=1),
-            ]
-        )
-        .reset_index(drop=True)
-        .rename({"width": "capacity"}, axis=1)
-    )
-
-    G_streets = nx.from_pandas_edgelist(
-        directed_edges,
-        source="source",
-        target="target",
-        edge_attr=["capacity", "distance", "gradient"],
-        create_using=nx.DiGraph,
-    )
-    # set attributes (not really needed)
-    # attrs = {i: {"loc": coords[i, :2], "elevation": coords[i, 2]} for i in range(len(coords))}
-    # nx.set_node_attributes(G_streets, attrs)
-    return G_streets
+    return nx.MultiDiGraph(G_lane)

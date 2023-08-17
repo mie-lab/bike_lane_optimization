@@ -2,6 +2,7 @@
 outputs/
 .vscode
 outputs_prev/
+figures/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

@@ -1,7 +1,7 @@
 import os
 import time
 import networkx as nx
-from ebike_city_tools.random_graph import lane_to_street_graph
+from ebike_city_tools.utils import lane_to_street_graph
 from ebike_city_tools.optimize.utils import output_to_dataframe, flow_to_df
 from ebike_city_tools.optimize.linear_program import define_IP
 from ebike_city_tools.optimize.round_simple import rounding_and_splitting, graph_from_integer_solution

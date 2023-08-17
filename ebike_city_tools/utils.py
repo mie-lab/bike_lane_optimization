@@ -17,6 +17,50 @@ def lossless_to_undirected(graph):
     return graph_undir
 
 
+def lane_to_street_graph(G_lane):
+    # convert to dataframe
+    G_dataframe = nx.to_pandas_edgelist(G_lane)
+    G_dataframe = G_dataframe[["source", "target", "capacity", "gradient", "distance"]]
+    assert all(G_dataframe["source"] != G_dataframe["target"])
+    G_dataframe["source undir"] = G_dataframe[["source", "target"]].min(axis=1)
+    G_dataframe["target undir"] = G_dataframe[["source", "target"]].max(axis=1)
+    # G_dataframe.apply(lambda x: tuple(sorted([x["source"], x["target"]])), axis=1)
+    # aggregate to get undirected
+    undirected_edges = G_dataframe.groupby(["source undir", "target undir"]).agg(
+        {"capacity": "sum", "distance": "first"}
+    )
+
+    # generate gradient first only for the ones where source < target
+    grad_per_dir_edge = G_dataframe.groupby(["source", "target"])["gradient"].first().reset_index()
+    grad_per_dir_edge = grad_per_dir_edge[grad_per_dir_edge["target"] > grad_per_dir_edge["source"]]
+    undirected_edges["gradient"] = grad_per_dir_edge.set_index(["source", "target"]).to_dict()["gradient"]
+
+    # make the same edges in the reverse direction -> gradient * (-1)
+    reverse_edges = undirected_edges.reset_index()
+    reverse_edges["source"] = reverse_edges["target undir"]
+    reverse_edges["target"] = reverse_edges["source undir"]
+    reverse_edges["gradient"] = reverse_edges["gradient"] * (-1)
+    # concatenate
+    directed_edges = pd.concat(
+        [
+            undirected_edges.reset_index().rename({"source undir": "source", "target undir": "target"}, axis=1),
+            reverse_edges.drop(["source undir", "target undir"], axis=1),
+        ]
+    ).reset_index(drop=True)
+
+    G_streets = nx.from_pandas_edgelist(
+        directed_edges,
+        source="source",
+        target="target",
+        edge_attr=["capacity", "distance", "gradient"],
+        create_using=nx.DiGraph,
+    )
+    # set attributes (not really needed)
+    # attrs = {i: {"loc": coords[i, :2], "elevation": coords[i, 2]} for i in range(len(coords))}
+    # nx.set_node_attributes(G_streets, attrs)
+    return G_streets
+
+
 def extend_od_matrix(od, nodes):
     """
     Extend the OD matrix such that every node appears as s and every node appears as t
@@ -47,8 +91,8 @@ def extend_od_matrix(od, nodes):
         shuffled_s = np.random.permutation(nodes_not_in_s)
         combined_nodes = np.concatenate(
             [
-                np.stack([nodes_not_in_t[:min_len], shuffled_s]),
-                np.stack([nodes_not_in_t[min_len:], shuffled_s[:len_diff]]),
+                np.stack([shuffled_s, nodes_not_in_t[:min_len]]),
+                np.stack([shuffled_s[:len_diff], nodes_not_in_t[min_len:]]),
             ],
             axis=1,
         )
@@ -63,43 +107,43 @@ def extend_od_matrix(od, nodes):
     return od_new
 
 
-def add_bike_and_car_time(G_city, bike_G, car_G, shared_lane_factor=2):
+def add_bike_and_car_time(G_lane, bike_G, car_G, shared_lane_factor=2):
     """
-    Add two attributes to the graph G_city: biketime and cartime
+    Add two attributes to the graph G_lane: biketime and cartime
     """
     bike_edges = bike_G.edges()
     car_edges = car_G.edges()
 
     # thought: can keep it a multigraph because we are iterating
-    for u, v, k, attributes in G_city.edges(data=True, keys=True):
+    for u, v, k, attributes in G_lane.edges(data=True, keys=True):
         e = (u, v, k)
 
         # 1) Car travel time: simply check whether the edge exists:
         if (u, v) in car_edges:
-            G_city.edges[e]["cartime"] = attributes["distance"] / 30
+            G_lane.edges[e]["cartime"] = attributes["distance"] / 30
         else:
-            G_city.edges[e]["cartime"] = np.inf
+            G_lane.edges[e]["cartime"] = np.inf
 
         # 2) Bike travel time
         # Case 1: There is a bike lane on this edge
         if (u, v) in bike_edges:
             if attributes["gradient"] > 0:
-                G_city.edges[e]["biketime"] = attributes["distance"] / max(
+                G_lane.edges[e]["biketime"] = attributes["distance"] / max(
                     [21.6 - 1.44 * attributes["gradient"], 1]
                 )  # at least 1kmh speed
             else:  # if gradient < 0, than speed must increase --> - * -
-                G_city.edges[e]["biketime"] = attributes["distance"] / (21.6 - 0.86 * attributes["gradient"])
+                G_lane.edges[e]["biketime"] = attributes["distance"] / (21.6 - 0.86 * attributes["gradient"])
         # Case 2: There is no bike lane, but a car lane in the right direction --> multiply with shared_lane_factor
         elif (u, v) in car_edges:
             if attributes["gradient"] > 0:
-                G_city.edges[e]["biketime"] = (
+                G_lane.edges[e]["biketime"] = (
                     shared_lane_factor * attributes["distance"] / max([21.6 - 1.44 * attributes["gradient"], 1])
                 )  # at least 1kmh speed
             else:
-                G_city.edges[e]["biketime"] = (
+                G_lane.edges[e]["biketime"] = (
                     shared_lane_factor * attributes["distance"] / (21.6 - 0.86 * attributes["gradient"])
                 )
         # Case 3: Neither a bike lane nor a directed car lane exists
         else:
-            G_city.edges[e]["biketime"] = np.inf
-    return G_city
+            G_lane.edges[e]["biketime"] = np.inf
+    return G_lane
