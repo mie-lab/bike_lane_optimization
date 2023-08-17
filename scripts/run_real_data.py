@@ -5,6 +5,7 @@ from ebike_city_tools.optimize.utils import make_fake_od, output_to_dataframe, f
 from ebike_city_tools.optimize.linear_program import define_IP
 from ebike_city_tools.utils import extend_od_matrix, lane_to_street_graph
 from ebike_city_tools.optimize.round_simple import pareto_frontier
+from ebike_city_tools.iterative_algorithms import betweenness_pareto
 import numpy as np
 import geopandas as gpd
 import networkx as nx
@@ -113,9 +114,11 @@ def generate_motorized_lane_graph(
 
 if __name__ == "__main__":
     path = "../street_network_data/ressources_aurelien"
-    shared_lane_factor = 2
+    shared_lane_factor = 2  # how much to penalize biking on car lanes
     FLOW_CONSTANT = 1  # how much flow to send through a path (set to 0.9 since street width is oftentimes 1.8)
     OUT_PATH = "outputs"
+    SP_METHOD = "od"
+    out_path_ending = "_od" if SP_METHOD == "od" else ""
     os.makedirs(OUT_PATH, exist_ok=True)
 
     # generate lane graph with snman
@@ -142,6 +145,9 @@ if __name__ == "__main__":
     # od = od[od["t"].isin(nodes.index)]
 
     assert nx.is_strongly_connected(G_lane), "G not connected"
+
+    pareto_between = betweenness_pareto(G_lane, sp_method=SP_METHOD, od_matrix=od)
+    pareto_between.to_csv(os.path.join(OUT_PATH, f"real_pareto_betweenness{out_path_ending}.csv"), index=False)
 
     G_street = lane_to_street_graph(G_lane)
 
@@ -171,7 +177,7 @@ if __name__ == "__main__":
     # compute the paretor frontier
     tic = time.time()
     pareto_df = pareto_frontier(
-        G_lane, capacity_values, shared_lane_factor=shared_lane_factor, sp_method="od", od_matrix=od
+        G_lane, capacity_values, shared_lane_factor=shared_lane_factor, sp_method=SP_METHOD, od_matrix=od
     )
     print("Time pareto", time.time() - tic)
-    pareto_df.to_csv(os.path.join(OUT_PATH, "real_pareto_df.csv"), index=False)
+    pareto_df.to_csv(os.path.join(OUT_PATH, f"real_pareto_df{out_path_ending}.csv"), index=False)

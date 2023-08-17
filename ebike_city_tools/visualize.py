@@ -6,6 +6,8 @@ import pandas as pd
 import seaborn as sns
 import os
 
+plt.rcParams.update({"font.size": 15})
+
 
 def visualize_graph(G):
     pos = nx.spring_layout(G, seed=42)
@@ -71,7 +73,7 @@ def plot_graph(G, directed=True, hw=0.05, weight="weight"):
     plt.show()
 
 
-def scatter_car_bike(res, metrics_for_eval, out_path=None):
+def scatter_car_bike(res, metrics_for_eval, out_path="figures"):
     fill_functions = [lambda x: 0, lambda x: max(x) + np.std(x), lambda x: 0]
     for metric, fill_func in zip(metrics_for_eval, fill_functions):
         bike_metric, car_metric = "bike_" + metric, "car_" + metric
@@ -87,7 +89,7 @@ def scatter_car_bike(res, metrics_for_eval, out_path=None):
             plt.savefig(os.path.join(out_path, metric + "_scatter.png"))
 
 
-def pareto_plot_sp(res, out_path):
+def pareto_plot_sp(res, out_path="figures"):
     """Plot with dotted lines for the extreme cases and scatter points otherwise"""
 
     car_optim = res.set_index("Method").loc["original", "car_sp_length"]
@@ -133,7 +135,7 @@ def pareto_plot_sp(res, out_path):
     plt.show()
 
 
-def visualize_runtime_dependency(path="outputs/runtime.csv", out_path="outputs"):
+def visualize_runtime_dependency(path="outputs/runtime.csv", out_path="figures"):
     """Plot the runtime for initialization and optimization"""
     runtime = pd.read_csv(path)
     plt.figure(figsize=(10, 5))
@@ -151,7 +153,7 @@ def visualize_runtime_dependency(path="outputs/runtime.csv", out_path="outputs")
     plt.savefig(os.path.join(out_path, "runtime_analysis.png"))
 
 
-def visualize_od_dependency(path="outputs/od_dependency.csv", out_path="outputs"):
+def visualize_od_dependency(path="outputs/od_dependency.csv", out_path="figures"):
     """Function to visualize the OD dependency"""
     od_dependency = pd.read_csv(path)
     plt.figure(figsize=(10, 5))
@@ -180,6 +182,25 @@ def visualize_od_dependency(path="outputs/od_dependency.csv", out_path="outputs"
     ).to_csv(os.path.join(out_path, "od_nonreachable.csv"))
 
 
+def compare_pareto(in_path="outputs", out_path="figures"):
+    for od in [True, False]:
+        ending = "_od" if od else ""
+        pareto_ours = pd.read_csv(os.path.join(in_path, f"real_pareto_df{ending}.csv"))
+        pareto_between = pd.read_csv(os.path.join(in_path, f"real_pareto_betweenness{ending}.csv"))
+        plt.figure(figsize=(6, 5))
+        plt.scatter(pareto_ours["bike_time"], pareto_ours["car_time"], label="Ours")
+        plt.scatter(pareto_between["bike_time"], pareto_between["car_time"], label="Betweenness")
+        plt.xlabel("Bike travel time")
+        plt.ylabel("Car travel time")
+        plt.xlim(35, 75)
+        plt.ylim(15, 55)
+        plt.legend()
+        plt.tight_layout()
+        plt.savefig(os.path.join(out_path, f"comparison{ending}.pdf"))
+        plt.show()
+
+
 if __name__ == "__main__":
     visualize_runtime_dependency()
     visualize_od_dependency()
+    compare_pareto()
