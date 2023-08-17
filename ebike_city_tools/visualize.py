@@ -200,7 +200,77 @@ def compare_pareto(in_path="outputs", out_path="figures"):
         plt.show()
 
 
+def compare_int_lin(in_path="outputs/integer_vs_linear.csv", out_path="figures"):
+    int_lin = pd.read_csv(in_path)
+    res = []
+    # compute distance of linear to pareto frontier
+    for group, group_df in int_lin.groupby(["iter", "nodes", "edges", "od_size"]):
+        # plot pareto frontier
+        group_df_linear = group_df[~pd.isna(group_df["bike_edges_added"])]
+        # plot integer as scatter
+        integer_bike = group_df.loc[pd.isna(group_df["bike_edges_added"]), "bike_time"]
+        integer_car = group_df.loc[pd.isna(group_df["bike_edges_added"]), "car_time"]
+
+        # sometimes, we only have the result for int or the result for lin
+        if len(integer_car) == 0 or len(group_df_linear) == 0:
+            continue
+
+        # plot exactly one group
+        if group == (1, 40, 146, 145):
+            plt.figure(figsize=(6, 5))
+            plt.scatter(group_df_linear["car_time"], group_df_linear["bike_time"], label="linear")
+            plt.scatter([integer_car], [integer_bike], label="integer")
+            plt.legend()
+            plt.xlabel("car travel time")
+            plt.ylabel("bike travel time")
+            plt.tight_layout()
+            plt.savefig(os.path.join(out_path, "pareto_example.pdf"))
+            # plt.show()
+
+        closest_val = abs(group_df_linear["car_time"] - integer_car.values[0]).idxmin()
+        int_closest = [integer_bike.values[0], integer_car.values[0]]
+        lin_closest = group_df_linear.loc[closest_val][["bike_time", "car_time"]].values
+        if int_closest[0] > 1.01 * lin_closest[0] or int_closest[1] > 1.01 * lin_closest[1]:
+            # plt.scatter(group_df_linear["car_time"], group_df_linear["bike_time"], label="linear")
+            # plt.scatter([integer_car], [integer_bike], label="integer")
+            # plt.legend()
+            # plt.show()
+            print("skipping because substantial difference betweeen linear and integer")
+            continue
+        else:
+            int_better = np.array(lin_closest) - np.array(int_closest)
+            dist = np.linalg.norm(int_better)
+            res.append([dist] + list(int_better) + list(int_better / np.array(lin_closest)))
+    # sumarize in dataframe
+    res = pd.DataFrame(
+        res,
+        columns=[
+            "Vector distance",
+            "Difference bike time",
+            "Difference car time",
+            "Relative difference bike time",
+            "Relative difference car time",
+        ],
+    ).round(3)
+    res.index.name = "trial"
+
+    # plot distribution
+    plt.figure(figsize=(6, 5))
+    ax = plt.subplot(111)
+    sns.kdeplot(res["Relative difference bike time"], ax=ax)
+    ax.set_ylabel("Density (bike time)")
+    ax2 = ax.twinx()
+    ax2.set_ylabel("Density (car time)")
+    sns.kdeplot(res["Relative difference car time"], ax=ax2, c="orange", label="Relative difference car time")
+    ax2.set_xlabel("Relative difference")
+    ax.set_xlabel("Relative difference")
+    plt.tight_layout()
+    plt.savefig(os.path.join(out_path, "lin_int_diff.pdf"))
+    plt.show()
+
+
 if __name__ == "__main__":
+    compare_int_lin()
     visualize_runtime_dependency()
     visualize_od_dependency()
     compare_pareto()
