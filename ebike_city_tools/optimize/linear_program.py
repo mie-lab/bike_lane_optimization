@@ -46,6 +46,7 @@ def define_IP(
         var_type = INTEGER
     else:
         var_type = CONTINUOUS
+    print("Running optimization with params", var_type, car_weight)
 
     # edge list where at least one of the capacities (bike or car) has not been fixed
     edge_list = list(G.edges)

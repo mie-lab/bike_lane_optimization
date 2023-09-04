@@ -10,7 +10,7 @@ from ebike_city_tools.optimize.round_simple import rounding_and_splitting, graph
 class Optimizer:
     """Generic class wrapping the optimization approaches"""
 
-    def __init__(self, graph, od_matrix=None, shared_lane_factor=2, integer_problem=False) -> None:
+    def __init__(self, graph, od_matrix=None, shared_lane_factor=2, integer_problem=False, **kwargs) -> None:
         """
         graph: networkx DiGraph
         od_matrix: OD matrix as a pandas dataframe with columns (u, v, flow)
@@ -21,6 +21,7 @@ class Optimizer:
         self.od_matrix = od_matrix
         self.integer_problem = integer_problem
         self.lp = None
+        self.optimizer_args = kwargs
 
     def init_lp(self):
         tic = time.time()
@@ -29,6 +30,7 @@ class Optimizer:
             od_df=self.od_matrix,
             shared_lane_factor=self.shared_lane_factor,
             integer_problem=self.integer_problem,
+            **self.optimizer_args
         )
         print("Initialized LP", time.time() - tic)
 
