@@ -73,12 +73,15 @@ def make_fake_od(n, nr_routes, nodes=None):
     od = pd.DataFrame()
     od["s"] = (np.random.rand(nr_routes) * n).astype(int)
     od["t"] = (np.random.rand(nr_routes) * n).astype(int)
-    od["flow"] = (np.random.rand(nr_routes) * 5).astype(int)
+    od["trips_per_day"] = (np.random.rand(nr_routes) * 5).astype(int)
     od = od[od["s"] != od["t"]].drop_duplicates(subset=["s", "t"])
 
     if nodes is not None:
         # transform into the correct node names
         node_list = np.array(sorted(list(nodes)))
         as_inds = od[["s", "t"]].values
+        trips_per_day = od["trips_per_day"].values  # save flow column here
+        # use as index
         od = pd.DataFrame(node_list[as_inds], columns=["s", "t"])
+        od["trips_per_day"] = trips_per_day
     return od

@@ -143,8 +143,20 @@ def random_lane_graph(n=20, neighbor_choices=[2, 3, 4], neighbor_p=[0.6, 0.3, 0.
             # (From paper: for every additional 1% of uphill gradient,
             # the mean speed is reduced by 0.4002 m/s (1.44 kph))
             # --> meters in height / (dist * 1000) * 100
-            edge_list.append([node_ids[i], node_ids[neigh], {"capacity": 1, "distance": dist, "gradient": gradient}])
-            edge_list.append([node_ids[neigh], node_ids[i], {"capacity": 1, "distance": dist, "gradient": -gradient}])
+            edge_list.append(
+                [
+                    node_ids[i],
+                    node_ids[neigh],
+                    {"capacity": 1, "distance": dist, "gradient": gradient, "speed_limit": 30},
+                ]
+            )
+            edge_list.append(
+                [
+                    node_ids[neigh],
+                    node_ids[i],
+                    {"capacity": 1, "distance": dist, "gradient": -gradient, "speed_limit": 30},
+                ]
+            )
     G_lane.add_edges_from(edge_list)
 
     # set attributes

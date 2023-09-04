@@ -80,6 +80,8 @@ def generate_motorized_lane_graph(
     target_lanes_attribute=KEY_LANES_DESCRIPTION_AFTER,
 ):
     G = io.load_street_graph(edge_path, node_path)  # initialize lanes after rebuild
+    # need to save the maxspeed attribute here to use it later
+    maxspeed = nx.get_edge_attributes(G, "maxspeed")
     nx.set_edge_attributes(G, nx.get_edge_attributes(G, source_lanes_attribute), target_lanes_attribute)
     # ensure consistent edge directions
     street_graph.organize_edge_directions(G)
@@ -104,10 +106,22 @@ def generate_motorized_lane_graph(
     # add gradient attribute
     elevation_dict = nx.get_node_attributes(L, "elevation")
     length_dict = nx.get_edge_attributes(L, "length")
-    gradient_attr = {}
+    gradient_attr, speed_limit_attr = {}, {}
+    isna = 0
     for e in L.edges:
         (u, v, _) = e
         gradient_attr[e] = 100 * (elevation_dict[v] - elevation_dict[u]) / length_dict[e]
+        # set speed limit attribute
+        if (u, v, 0) in maxspeed.keys():
+            speed_limit_attr[e] = maxspeed[(u, v, 0)]
+        elif (v, u, 0) in maxspeed.keys():
+            speed_limit_attr[e] = maxspeed[(v, u, 0)]
+        else:
+            speed_limit_attr[e] = pd.NA
+        if pd.isna(speed_limit_attr[e]):
+            isna += 1
+            speed_limit_attr[e] = 30
+    nx.set_edge_attributes(L, speed_limit_attr, name="speed_limit")
     nx.set_edge_attributes(L, gradient_attr, name="gradient")
 
     return L

@@ -79,6 +79,7 @@ def define_IP(
 
     capacities = nx.get_edge_attributes(G, "capacity")
     distance = nx.get_edge_attributes(G, "distance")
+    speed_limit = nx.get_edge_attributes(G, "speed_limit")
     gradient = nx.get_edge_attributes(G, "gradient")
 
     # Creation of time attribute
@@ -87,7 +88,7 @@ def define_IP(
             G.edges[e]["biketime"] = distance[e] / max([21.6 - 1.44 * gradient[e], 1])  # at least 1kmh speed
         else:  # if gradient < 0, than speed must increase --> - * -
             G.edges[e]["biketime"] = distance[e] / (21.6 - 0.86 * gradient[e])
-        G.edges[e]["cartime"] = distance[e] / 30
+        G.edges[e]["cartime"] = distance[e] / speed_limit[e]
     bike_time = nx.get_edge_attributes(G, "biketime")
     car_time = nx.get_edge_attributes(G, "cartime")
 

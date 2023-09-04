@@ -20,14 +20,14 @@ def lossless_to_undirected(graph):
 def lane_to_street_graph(G_lane):
     # convert to dataframe
     G_dataframe = nx.to_pandas_edgelist(G_lane)
-    G_dataframe = G_dataframe[["source", "target", "capacity", "gradient", "distance"]]
+    G_dataframe = G_dataframe[["source", "target", "capacity", "gradient", "distance", "speed_limit"]]
     assert all(G_dataframe["source"] != G_dataframe["target"])
     G_dataframe["source undir"] = G_dataframe[["source", "target"]].min(axis=1)
     G_dataframe["target undir"] = G_dataframe[["source", "target"]].max(axis=1)
     # G_dataframe.apply(lambda x: tuple(sorted([x["source"], x["target"]])), axis=1)
     # aggregate to get undirected
     undirected_edges = G_dataframe.groupby(["source undir", "target undir"]).agg(
-        {"capacity": "sum", "distance": "first"}
+        {"capacity": "sum", "distance": "first", "speed_limit": "first"}
     )
 
     # generate gradient first only for the ones where source < target
@@ -52,7 +52,7 @@ def lane_to_street_graph(G_lane):
         directed_edges,
         source="source",
         target="target",
-        edge_attr=["capacity", "distance", "gradient"],
+        edge_attr=["capacity", "distance", "gradient", "speed_limit"],
         create_using=nx.DiGraph,
     )
     # set attributes (not really needed)
