@@ -1,5 +1,6 @@
 import time
 import os
+import argparse
 import pandas as pd
 from ebike_city_tools.optimize.utils import make_fake_od, output_to_dataframe, flow_to_df
 from ebike_city_tools.optimize.linear_program import define_IP
@@ -113,11 +114,23 @@ def generate_motorized_lane_graph(
 
 
 if __name__ == "__main__":
-    path = "../street_network_data/ressources_aurelien"
-    shared_lane_factor = 2  # how much to penalize biking on car lanes
-    FLOW_CONSTANT = 1  # how much flow to send through a path (set to 0.9 since street width is oftentimes 1.8)
-    OUT_PATH = "outputs"
-    SP_METHOD = "od"
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-d", "--data_path", default="../street_network_data/zollikerberg", type=str)
+    parser.add_argument("-o", "--out_path", default="outputs", type=str)
+    parser.add_argument("-b", "--run_betweenness", action="store_true")
+    parser.add_argument(
+        "-p", "--penalty_shared", default=2, type=int, help="penalty factor for driving on a car lane by bike"
+    )
+    parser.add_argument(
+        "-s", "--sp_method", default="od", type=str, help="Compute the shortest path either 'all_pairs' or 'od'"
+    )
+    args = parser.parse_args()
+
+    path = args.data_path
+    shared_lane_factor = args.penalty_shared  # how much to penalize biking on car lanes
+    FLOW_CONSTANT = 1  # how much flow to send through a path
+    OUT_PATH = args.out_path
+    SP_METHOD = args.sp_method
     out_path_ending = "_od" if SP_METHOD == "od" else ""
     os.makedirs(OUT_PATH, exist_ok=True)
 
@@ -146,8 +159,10 @@ if __name__ == "__main__":
 
     assert nx.is_strongly_connected(G_lane), "G not connected"
 
-    pareto_between = betweenness_pareto(G_lane, sp_method=SP_METHOD, od_matrix=od)
-    pareto_between.to_csv(os.path.join(OUT_PATH, f"real_pareto_betweenness{out_path_ending}.csv"), index=False)
+    if args.run_betweenness:
+        # run betweenness centrality algorithm for comparison
+        pareto_between = betweenness_pareto(G_lane, sp_method=SP_METHOD, od_matrix=od)
+        pareto_between.to_csv(os.path.join(OUT_PATH, f"real_pareto_betweenness{out_path_ending}.csv"), index=False)
 
     G_street = lane_to_street_graph(G_lane)
 
