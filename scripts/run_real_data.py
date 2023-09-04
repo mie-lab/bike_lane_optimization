@@ -140,7 +140,7 @@ if __name__ == "__main__":
     )
 
     # load OD
-    od = pd.read_csv(os.path.join(path, "od_matrix_zolliker.csv"))
+    od = pd.read_csv(os.path.join(path, "od_matrix.csv"))
     od.rename({"osmid_origin": "s", "osmid_destination": "t"}, inplace=True, axis=1)
     od = od[od["s"] != od["t"]]
     # reduce OD matrix to nodes that are in G_lane

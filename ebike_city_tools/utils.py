@@ -98,8 +98,8 @@ def extend_od_matrix(od, nodes):
         )
     # transform to dataframe
     new_od_paths = pd.DataFrame(combined_nodes.swapaxes(1, 0), columns=["s", "t"])
-    # concat and add a flow value of 1
-    od_new = pd.concat([od, new_od_paths]).fillna(1)
+    # concat and add a flow value of 0 since we don't want to optimize the travel time for these lanes
+    od_new = pd.concat([od, new_od_paths]).fillna(0)
 
     # check again
     nodes_not_in_s, nodes_not_in_t = get_missing_nodes(od_new)

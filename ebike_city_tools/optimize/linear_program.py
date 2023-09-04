@@ -13,16 +13,34 @@ def define_IP(
     cap_factor=1,
     only_double_bikelanes=True,
     shared_lane_variables=True,
-    shared_lane_factor=2,  # twice as long bike time on shared lanes
+    shared_lane_factor=2,
     od_df=None,
     bike_flow_constant=1,
     car_flow_constant=1,
+    weight_by_od_flow=True,
     integer_problem=False,
+    car_weight=5,
 ):
-    """Allocates traffic lanes to the bike network or the car network by optimizing overall travel time
+    """
+    Allocates traffic lanes to the bike network or the car network by optimizing overall travel time
     and ensuring network accessibility for both modes
-    Input: Graph G
-    Output: Dataframe with optimal edge capacity values for each network (bike and car)
+    Arguments:
+        G: input graph (nx.DiGraph)
+        edges_bike_list: list of edges to optimize, assuming that some edges are fixed already (iterative rounding)
+        edges_car_list: list of edges to optimize, assuming that some edges are fixed already (iterative rounding)
+        fixed_values: edge capacities that are already fixed (iterative rounding)
+        cap_factor: Factor to increase the capacity (deprecated)
+        only_double_bikelanes: Allow only bidirectional bike lanes
+        shared_lane_variables: If True, bikes are allowed to drive on car lanes (i.e., shared lanes) under penalty
+        shared_lane_factor: penalty factor for panalizing biking on car lanes, e.g. 2 means that the travel time is
+            twice as long on shared lanes than on pure bike lanes
+        od_df: Dataframe with OD pairs (columns s, t and trips_per_day)
+        bike_flow_constant: Required flow value to be sent from s to t by bike
+        car_flow_constant: Required flow value to be sent from s to t by car
+        weight_by_od_flow: If True, the terms in the objective are weighted by the flow in the OD matrix
+        integer_problem: if True, the flow variables are constraint to be integers
+        car_weight: int, weighting of car travel time in the objective function
+    Returns: Dataframe with optimal edge capacity values for each network (bike and car)
     """
     if integer_problem:
         var_type = INTEGER
@@ -50,6 +68,12 @@ def define_IP(
     else:
         # for now, just extract s t columns and ignore how much flow
         od_flow = od_df[["s", "t"]].values
+
+    # if desired, we weight the terms in the objective function by the flow in the OD matrix
+    if weight_by_od_flow and od_df is not None:
+        od_weighting = od_df["trips_per_day"].values
+    else:
+        od_weighting = np.ones(len(od_flow))
 
     print("Number of flow variables", len(od_flow), m, len(od_flow) * m)
 
@@ -203,28 +227,21 @@ def define_IP(
         )
 
     # Objective value
+    objective_bike = mip.xsum(
+        f_bike(od_ind, e) * bike_time[e] * od_weighting[od_ind] for od_ind in range(len(od_flow)) for e in G.edges
+    )
+    objective_car = mip.xsum(
+        f_car(od_ind, e) * car_time[e] * od_weighting[od_ind] for od_ind in range(len(od_flow)) for e in G.edges
+    )
+
     if shared_lane_variables:
-        streetIP += (
-            mip.xsum(f_bike(od_ind, e) * bike_time[e] for od_ind in range(len(od_flow)) for e in G.edges)
-            + 5 * mip.xsum(f_car(od_ind, e) * car_time[e] for od_ind in range(len(od_flow)) for e in G.edges)
-            + mip.xsum(
-                f_shared(od_ind, e) * bike_time[e] * shared_lane_factor  # factor how much longer it takes on car lanes
-                for od_ind in range(len(od_flow))
-                for e in G.edges
-            )
+        # travel time on shared lanes -> weight by shared lane factor
+        objective_shared = mip.xsum(
+            f_shared(od_ind, e) * bike_time[e] * shared_lane_factor * od_weighting[od_ind]
+            for od_ind in range(len(od_flow))
+            for e in G.edges
         )
+        streetIP += objective_bike + car_weight * objective_car + objective_shared
     else:
-        streetIP += (
-            mip.xsum(f_bike(od_ind, e) * bike_time[e] for od_ind in range(len(od_flow)) for e in G.edges)
-            + mip.xsum(f_car(od_ind, e) * car_time[e] for od_ind in range(len(od_flow)) for e in G.edges)
-            # # The following lines aimed to find solution with tight capacities. However, this does not work. In the end,
-            # we want distribute the whole street width, so we want the larges u_b and u_c. Also, minimizing them yields
-            # extremely different results
-            # + 0.1 * mip.xsum([u_c(e) for e in edges_car_list])
-            # + 0.1 * mip.xsum([u_b(e) for e in edges_bike_list])
-        )
+        streetIP += objective_bike + car_weight * objective_car
     return streetIP
-
-
-# def optimize_lp(G):
-# Optimization
