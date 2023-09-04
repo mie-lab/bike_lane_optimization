@@ -177,18 +177,16 @@ def greedy_betweenness(lane_graph_inp, bike_edges_to_add=None):
 
 
 def betweenness_pareto(G_lane, od_matrix=None, sp_method="all_pairs", shared_lane_factor=2):
-    pareto_df = []
-    num_bike_edges = -1
-    # add up to all edges to the bike network
-    for bike_edges_to_add in range(1, G_lane.number_of_edges()):
-        # run betweennes centrality algorithm
-        bike_G, car_G = greedy_betweenness(G_lane, bike_edges_to_add=bike_edges_to_add)
+    def add_metrics(bike_edges, car_G, G_lane, num_added_edges):
+        """function to add the metrics to the final list"""
+        # generate bike_G from bike edges
+        bike_G = nx.MultiGraph()
+        multi_bike_edge_list = [[e[0], e[1], i, {}] for i, e in enumerate(bike_edges)]
+        bike_G.add_edges_from(multi_bike_edge_list)
+        nx.set_node_attributes(bike_G, node_attributes, name="loc")
+
         assert bike_G.number_of_edges() + car_G.number_of_edges() == G_lane.number_of_edges()
-        # early stopping if there was no change anymore
-        if bike_G.number_of_edges() == num_bike_edges and bike_edges_to_add > 1:
-            print("Early stopping at iteration", bike_edges_to_add)
-            break
-        num_bike_edges = bike_G.number_of_edges()
+
         # transform the graph layout into travel times, including gradient and penalty factor for using
         # car lanes by bike
         G_lane = add_bike_and_car_time(G_lane, bike_G, car_G, shared_lane_factor)
@@ -201,14 +199,54 @@ def betweenness_pareto(G_lane, od_matrix=None, sp_method="all_pairs", shared_lan
             car_travel_time = np.mean(pd.DataFrame(nx.floyd_warshall(G_lane, weight="cartime")).values)
         pareto_df.append(
             {
-                "bike_edges_added": bike_edges_to_add,
+                "bike_edges_added": num_added_edges,
                 "bike_edges": bike_G.number_of_edges(),
                 "car_edges": car_G.number_of_edges(),
                 "bike_time": bike_travel_time,
                 "car_time": car_travel_time,
             }
         )
-        print(pareto_df[-1])
+
+    # initialize list with results
+    pareto_df = []
+
+    # copy graph
+    lane_graph = G_lane.copy()
+    # save nodes for bike graph later
+    node_attributes = nx.get_node_attributes(lane_graph, name="loc")
+    # init is_fixed
+    is_fixed = {edge: False for edge in lane_graph.edges}
+
+    iters, edges_removed = 0, 0
+    # max iters
+    max_iters = lane_graph.number_of_edges() * 10
+    bike_edges = []
+
+    # iteratively recompute betweenness centrality
+    while iters < max_iters:
+        betweenness = nx.edge_betweenness_centrality(lane_graph)
+        # find edge with lowest betweenness centrality that it not fixed
+        sorted_edges = sorted(betweenness.items(), key=lambda x: x[1])
+        for s in sorted_edges:
+            if not is_fixed[s[0]]:
+                min_edge = s[0]
+                break
+        # remove this edge
+        lane_graph.remove_edge(*min_edge)
+        if not nx.is_strongly_connected(lane_graph):
+            lane_graph.add_edge(*min_edge)
+            is_fixed[min_edge] = True
+            if all(is_fixed.values()):
+                break
+        else:
+            edges_removed += 1
+            bike_edges.append(min_edge)
+            # ADD TO PARETO
+            add_metrics(bike_edges, lane_graph.copy(), G_lane, edges_removed)
+            print(pareto_df[-1])
+
+        iters += 1
+
     return pd.DataFrame(pareto_df)
 
 
