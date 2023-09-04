@@ -2,7 +2,7 @@ import networkx as nx
 import pandas as pd
 import numpy as np
 from mip import mip, INTEGER, CONTINUOUS
-from ebike_city_tools.optimize.utils import output_to_dataframe, flow_to_df
+from ebike_city_tools.utils import compute_bike_time
 
 
 def define_IP(
@@ -84,10 +84,7 @@ def define_IP(
 
     # Creation of time attribute
     for e in G.edges:
-        if gradient[e] > 0:
-            G.edges[e]["biketime"] = distance[e] / max([21.6 - 1.44 * gradient[e], 1])  # at least 1kmh speed
-        else:  # if gradient < 0, than speed must increase --> - * -
-            G.edges[e]["biketime"] = distance[e] / (21.6 - 0.86 * gradient[e])
+        G.edges[e]["biketime"] = compute_bike_time(distance[e], gradient[e])
         G.edges[e]["cartime"] = distance[e] / speed_limit[e]
     bike_time = nx.get_edge_attributes(G, "biketime")
     car_time = nx.get_edge_attributes(G, "cartime")

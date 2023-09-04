@@ -125,6 +125,16 @@ def extend_od_matrix(od, nodes):
     return od_new
 
 
+def compute_bike_time(distance, gradient):
+    """Following the formula from Parkin and Rotheram (2010)"""
+    if gradient > 0:
+        # gradient positive -> reduced speed
+        return distance / max([21.6 - 1.44 * gradient, 1])  # at least 1kmh speed
+    else:
+        # gradient positive -> increase speed (but - because gradient also negative)
+        return distance / (21.6 - 0.86 * gradient)
+
+
 def add_bike_and_car_time(G_lane, bike_G, car_G, shared_lane_factor=2):
     """
     Add two attributes to the graph G_lane: biketime and cartime
@@ -138,28 +148,19 @@ def add_bike_and_car_time(G_lane, bike_G, car_G, shared_lane_factor=2):
 
         # 1) Car travel time: simply check whether the edge exists:
         if (u, v) in car_edges:
-            G_lane.edges[e]["cartime"] = attributes["distance"] / 30
+            G_lane.edges[e]["cartime"] = attributes["distance"] / attributes["speed_limit"]
         else:
             G_lane.edges[e]["cartime"] = np.inf
 
         # 2) Bike travel time
         # Case 1: There is a bike lane on this edge
         if (u, v) in bike_edges:
-            if attributes["gradient"] > 0:
-                G_lane.edges[e]["biketime"] = attributes["distance"] / max(
-                    [21.6 - 1.44 * attributes["gradient"], 1]
-                )  # at least 1kmh speed
-            else:  # if gradient < 0, than speed must increase --> - * -
-                G_lane.edges[e]["biketime"] = attributes["distance"] / (21.6 - 0.86 * attributes["gradient"])
+            G_lane.edges[e]["biketime"] = compute_bike_time(attributes["distance"], attributes["gradient"])
         # Case 2: There is no bike lane, but a car lane in the right direction --> multiply with shared_lane_factor
         elif (u, v) in car_edges:
             if attributes["gradient"] > 0:
-                G_lane.edges[e]["biketime"] = (
-                    shared_lane_factor * attributes["distance"] / max([21.6 - 1.44 * attributes["gradient"], 1])
-                )  # at least 1kmh speed
-            else:
-                G_lane.edges[e]["biketime"] = (
-                    shared_lane_factor * attributes["distance"] / (21.6 - 0.86 * attributes["gradient"])
+                G_lane.edges[e]["biketime"] = shared_lane_factor * compute_bike_time(
+                    attributes["distance"], attributes["gradient"]
                 )
         # Case 3: Neither a bike lane nor a directed car lane exists
         else:

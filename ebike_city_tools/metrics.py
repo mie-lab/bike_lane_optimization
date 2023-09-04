@@ -42,7 +42,7 @@ def od_sp(G, od, weight, weighted_by_flow=False):
     for _, row in od.iterrows():
         sp_len = nx.shortest_path_length(G, source=row["s"], target=row["t"], weight=weight)
         if weighted_by_flow:
-            sp_len *= row["flow"]
+            sp_len *= row["trips_per_day"]
         sp.append(sp_len)
     return np.mean(sp)
 
