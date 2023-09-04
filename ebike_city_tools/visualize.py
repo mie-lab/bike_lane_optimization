@@ -269,6 +269,25 @@ def compare_int_lin(in_path="outputs/integer_vs_linear.csv", out_path="figures")
     plt.show()
 
 
+def integer_linear_examples(in_path="outputs/integer_vs_linear.csv", out_path="figures/pareto_examples"):
+    int_vs_lin = pd.read_csv(in_path)
+    os.makedirs(out_path, exist_ok=True)
+    i = 0
+    for (nodes, edges, od_size), part_df in int_vs_lin.groupby(["nodes", "edges", "od_size"]):
+        integer = part_df[part_df["name"] == "integer"]
+        linear = part_df[part_df["name"] == "linear"]
+        plt.scatter(linear["bike_time"] * 60, linear["car_time"] * 60, c=linear["car_weight"].values, marker=".", label="linear") #  c=linear["bike_edges"].values
+        plt.scatter(integer["bike_time"] * 60, integer["car_time"] * 60, c=integer["car_weight"].values, marker="x", label="integer") # c=integer["car_weight"].values,
+        plt.xlabel("Avg. bike travel time [min]")
+        plt.ylabel("Avg. car travel time [min]")
+        plt.legend(title="IP or LP formulation")
+        plt.colorbar(label="weighting of car time in objective")
+        plt.tight_layout()
+        plt.savefig(os.path.join(out_path, f"example_{i}.pdf"))
+        plt.show()
+        i += 1
+
+
 if __name__ == "__main__":
     compare_int_lin()
     visualize_runtime_dependency()

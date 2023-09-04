@@ -159,6 +159,7 @@ def add_bike_and_car_time(G_lane, bike_G, car_G, shared_lane_factor=2):
         # Case 2: There is no bike lane, but a car lane in the right direction --> multiply with shared_lane_factor
         elif (u, v) in car_edges:
             if attributes["gradient"] > 0:
+                # speed is given in km/h, distance is given in km?
                 G_lane.edges[e]["biketime"] = shared_lane_factor * compute_bike_time(
                     attributes["distance"], attributes["gradient"]
                 )

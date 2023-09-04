@@ -101,6 +101,7 @@ def generate_motorized_lane_graph(
 
     # rename to distance
     distances = nx.get_edge_attributes(L, "length")
+    distances = {k: v / 1000 for k, v in distances.items()}  # transform to km
     nx.set_edge_attributes(L, distances, "distance")
 
     # add gradient attribute
