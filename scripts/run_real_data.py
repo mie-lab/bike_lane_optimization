@@ -129,6 +129,7 @@ def generate_motorized_lane_graph(
 
 
 if __name__ == "__main__":
+    np.random.seed(42)
     parser = argparse.ArgumentParser()
     parser.add_argument("-d", "--data_path", default="../street_network_data/zollikerberg", type=str)
     parser.add_argument("-o", "--out_path", default="outputs", type=str)
