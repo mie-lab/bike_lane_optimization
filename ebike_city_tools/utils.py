@@ -61,6 +61,24 @@ def lane_to_street_graph(G_lane):
     return G_streets
 
 
+def extend_od_circular(od, nodes):
+    """
+    Create new OD matrix that ensures connectivity by connecting one node to the next in a list
+    od: pd.DataFrame, original OD with columns s, t and trips_per_day
+    nodes: list, all nodes in the graph
+    """
+    # shuffle and convert to df
+    new_od_paths = pd.DataFrame(nodes, columns=["s"]).sample(frac=1).reset_index(drop=True)
+    # shift by one to ensure cirularity
+    new_od_paths["t"] = new_od_paths["s"].shift(1)
+    # fille nan
+    new_od_paths.loc[0, "t"] = new_od_paths.iloc[-1]["s"]
+
+    # concatenate and add flow of 0 to the new OD pairs
+    od_new = pd.concat([od, new_od_paths]).fillna(0).astype(int)
+    return od_new.drop_duplicates()
+
+
 def extend_od_matrix(od, nodes):
     """
     Extend the OD matrix such that every node appears as s and every node appears as t

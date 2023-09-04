@@ -4,7 +4,7 @@ import argparse
 import pandas as pd
 from ebike_city_tools.optimize.utils import make_fake_od, output_to_dataframe, flow_to_df
 from ebike_city_tools.optimize.linear_program import define_IP
-from ebike_city_tools.utils import extend_od_matrix, lane_to_street_graph
+from ebike_city_tools.utils import extend_od_matrix, lane_to_street_graph, extend_od_circular
 from ebike_city_tools.optimize.round_simple import pareto_frontier
 from ebike_city_tools.iterative_algorithms import betweenness_pareto
 import numpy as np
@@ -148,7 +148,7 @@ if __name__ == "__main__":
     od = od[(od["s"].isin(node_list)) & (od["t"].isin(node_list))]
 
     # extend OD matrix because otherwise we get disconnected car graph
-    od = extend_od_matrix(od, node_list)
+    od = extend_od_circular(od, node_list)
 
     # # making a subgraph only disconnects the graoh
     # nodes = nodes.sample(200)
@@ -160,12 +160,14 @@ if __name__ == "__main__":
     assert nx.is_strongly_connected(G_lane), "G not connected"
 
     if args.run_betweenness:
+        print("Running betweenness algorithm for pareto frontier...")
         # run betweenness centrality algorithm for comparison
         pareto_between = betweenness_pareto(G_lane, sp_method=SP_METHOD, od_matrix=od)
         pareto_between.to_csv(os.path.join(OUT_PATH, f"real_pareto_betweenness{out_path_ending}.csv"), index=False)
 
     G_street = lane_to_street_graph(G_lane)
 
+    print("Running LP for pareto frontier...")
     tic = time.time()
     ip = define_IP(
         G_street,
