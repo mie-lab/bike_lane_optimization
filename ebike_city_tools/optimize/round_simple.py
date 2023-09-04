@@ -132,25 +132,20 @@ def initialize_bike_graph(result_df):
 def iteratively_redistribute_edges(car_G, bike_G, unique_edges, stop_ub_zero=True, bike_edges_to_add=None):
     """Main algorithm to assign edges"""
 
-    def remove_uc_edge():
+    def remove_uc_edge(edge):
         car_G.remove_edge(*edge)
         if not nx.is_strongly_connected(car_G):
             car_G.add_edge(*edge)
             return False
-        else:
-            # print("Removed", edge)
-            return True
+        return True
 
-    def remove_reversed_edge():
+    def remove_reversed_edge(edge):
         car_G.remove_edge(edge[1], edge[0])
         if not nx.is_strongly_connected(car_G):
             car_G.add_edge(edge[1], edge[0])
             return False
-        else:
-            # print("Removed", (edge[1], edge[0]))
-            return True
+        return True
 
-    unique_edges.sort_values("u_b(e)", inplace=True, ascending=False)
     total_capacity = unique_edges["capacity"].sum()
 
     edges_added_counter = 0
@@ -161,13 +156,13 @@ def iteratively_redistribute_edges(car_G, bike_G, unique_edges, stop_ub_zero=Tru
         # replace the smaller one of the u_c edges (e.g., value 0.1 means that it's maybe not necessary)
         success = False
         if row["u_c(e)"] <= row["u_c(e)_reversed"] and row["u_c(e)"] > 0:
-            success = remove_uc_edge()
+            success = remove_uc_edge(edge)
             if not success:
-                success = remove_reversed_edge()
+                success = remove_reversed_edge(edge)
         elif row["u_c(e)_reversed"] > 0:
-            success = remove_reversed_edge()
+            success = remove_reversed_edge(edge)
             if not success:
-                success = remove_uc_edge()
+                success = remove_uc_edge(edge)
 
         # if it worked for either of the directions
         if success:
@@ -196,6 +191,8 @@ def rounding_and_splitting(result_df):
     bike_G = initialize_bike_graph(result_df.copy())
     # get unique set of edges
     unique_edges = result_to_streets(result_df.copy())
+    # sort list of edges for prioritizing
+    unique_edges.sort_values("u_b(e)", inplace=True, ascending=False)
 
     print("Start graph edges", bike_G.number_of_edges(), car_G.number_of_edges())
 
@@ -235,6 +232,7 @@ def pareto_frontier(
     Round with different cutoffs and thereby compute pareto frontier
     capacity_values: pd.DataFrame
     sp_method: str, one of {all_pairs, od} - compute the all pairs shortest paths or only on the OD matrix
+    TODO: could be made more efficient by not starting from scratch in every redistribution
     """
     assert sp_method != "od" or od_matrix is not None
     G_lane = G_original.copy()
@@ -248,6 +246,8 @@ def pareto_frontier(
     bike_G_init = initialize_bike_graph(capacity_values.copy())
     # get unique set of edges
     unique_edges = result_to_streets(capacity_values.copy())
+    # sort list of edges
+    unique_edges.sort_values("u_b(e)", inplace=True, ascending=False)
     print("Start graph edges", bike_G_init.number_of_edges(), car_G_init.number_of_edges())
 
     # compute number of edges that we could redistribute (all the undirected edges that are not part of bike_G yet)
@@ -277,9 +277,11 @@ def pareto_frontier(
         if sp_method == "od":
             bike_travel_time = od_sp(G_lane, od_matrix, weight="biketime")
             car_travel_time = od_sp(G_lane, od_matrix, weight="cartime")
-        else:
+        elif sp_method == "all_pairs":
             bike_travel_time = np.mean(pd.DataFrame(nx.floyd_warshall(G_lane, weight="biketime")).values)
             car_travel_time = np.mean(pd.DataFrame(nx.floyd_warshall(G_lane, weight="cartime")).values)
+        else:
+            raise ValueError("Wrong sp method, must be all_pairs or od")
         pareto_df.append(
             {
                 "bike_edges_added": bike_edges_to_add,
