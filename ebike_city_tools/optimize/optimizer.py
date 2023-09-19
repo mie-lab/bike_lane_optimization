@@ -5,6 +5,7 @@ from ebike_city_tools.utils import lane_to_street_graph
 from ebike_city_tools.optimize.utils import output_to_dataframe, flow_to_df
 from ebike_city_tools.optimize.linear_program import define_IP
 from ebike_city_tools.optimize.round_simple import rounding_and_splitting, graph_from_integer_solution
+from ebike_city_tools.optimize.randomized_rounding import randomized_rounding
 
 
 class Optimizer:
@@ -75,4 +76,4 @@ def run_optimization(graph, od=None):
     optim = Optimizer(graph=graph, od_matrix=od)
     optim.init_lp()
     _ = optim.optimize()
-    return optim.postprocess()
+    return optim.postprocess(randomized_rounding)

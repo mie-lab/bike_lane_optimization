@@ -4,58 +4,7 @@ import numpy as np
 
 from ebike_city_tools.utils import output_lane_graph
 from ebike_city_tools.metrics import od_sp
-
-
-def result_to_streets(result_df_in):
-    result_df = result_df_in.copy()
-    if type(result_df.iloc[0]["Edge"]) == str:
-        result_df["Edge"] = result_df["Edge"].apply(eval)
-    result_df["source<target"] = result_df["Edge"].apply(lambda x: x[0] < x[1])
-    result_df.set_index("Edge", inplace=True)
-    # make new representation with all in one line
-    reversed_edges = result_df[~result_df["source<target"]].reset_index()
-    reversed_edges["Edge"] = reversed_edges["Edge"].apply(lambda x: (x[1], x[0]))
-    together = pd.merge(
-        result_df[result_df["source<target"]],
-        reversed_edges,
-        how="outer",
-        left_index=True,
-        right_on="Edge",
-        suffixes=("", "_reversed"),
-    ).set_index("Edge")
-    assert all(together["capacity"] == together["capacity_reversed"])
-    #     assert all(together["u_b(e)"] == together["u_b(e)_reversed"])
-    assert all(together["source<target"] != together["source<target_reversed"])
-    together.drop(["capacity_reversed", "source<target_reversed", "source<target"], axis=1, inplace=True)
-    if all(together["u_b(e)"] == together["u_b(e)_reversed"]):
-        together.drop(["u_b(e)_reversed"], axis=1, inplace=True)
-    assert len(together) == 0.5 * len(result_df)
-    return together
-
-
-def edge_to_source_target(df):
-    """Transforms on column called 'Edge' of a dataframe to two columns [source, target]"""
-    if type(df.iloc[0]["Edge"]) == str:
-        df["Edge"] = df["Edge"].apply(eval)
-    df["source"] = df["Edge"].apply(lambda x: x[0])
-    df["target"] = df["Edge"].apply(lambda x: x[1])
-    return df
-
-
-def repeat_and_edgekey(df):
-    """Helper function to transform DiGraph into MultiDiGraph"""
-    # repeat rows
-    df.sort_values("Edge")
-    df = df.reindex(df.index.repeat(df["number_edges"]))
-    # assign edge key
-    df["edge_key"] = 0
-    df["previous_edge"] = df["Edge"].shift(1)
-    for i in range(int(df["number_edges"].max())):
-        df["previous_key"] = df["edge_key"].shift(1)
-        df.loc[df["previous_edge"] == df["Edge"], "edge_key"] = (
-            df.loc[df["previous_edge"] == df["Edge"], "previous_key"] + 1
-        )
-    return df
+from ebike_city_tools.optimize.rounding_utils import *
 
 
 def ceiled_car_graph_simple(result_df):
@@ -184,6 +133,7 @@ def iteratively_redistribute_edges(car_G, bike_G, unique_edges, stop_ub_zero=Tru
 
 
 def rounding_and_splitting(result_df, bike_edges_to_add=None):
+    print(result_df.head)
     # Initial car graph is one with all the car capacity values rounded up
     car_G = ceiled_car_graph(result_df.copy())
     assert nx.is_strongly_connected(car_G)
