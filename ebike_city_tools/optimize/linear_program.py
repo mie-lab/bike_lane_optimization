@@ -17,7 +17,7 @@ def define_IP(
     od_df=None,
     bike_flow_constant=1,
     car_flow_constant=1,
-    weight_by_od_flow=True,
+    weight_od_flow=False,
     integer_problem=False,
     car_weight=5,
 ):
@@ -37,7 +37,7 @@ def define_IP(
         od_df: Dataframe with OD pairs (columns s, t and trips_per_day)
         bike_flow_constant: Required flow value to be sent from s to t by bike
         car_flow_constant: Required flow value to be sent from s to t by car
-        weight_by_od_flow: If True, the terms in the objective are weighted by the flow in the OD matrix
+        weight_od_flow: If True, the terms in the objective are weighted by the flow in the OD matrix
         integer_problem: if True, the flow variables are constraint to be integers
         car_weight: int, weighting of car travel time in the objective function
     Returns: Dataframe with optimal edge capacity values for each network (bike and car)
@@ -71,7 +71,7 @@ def define_IP(
         od_flow = od_df[["s", "t"]].values
 
     # if desired, we weight the terms in the objective function by the flow in the OD matrix
-    if weight_by_od_flow and od_df is not None:
+    if weight_od_flow and od_df is not None:
         od_weighting = od_df["trips_per_day"].values
     else:
         od_weighting = np.ones(len(od_flow))

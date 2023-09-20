@@ -38,7 +38,7 @@ if __name__ == "__main__":
                             integer_problem=integer_problem,
                             shared_lane_factor=shared_lane_factor,  # factor how much worse it is to bike on a car lane
                             car_weight=car_weight,
-                            weight_by_od_flow=False,
+                            weight_od_flow=False,
                             # here we don't want to weight by OD flow because we evaluate all pairs SP lengths
                         )
                         tic = time.time()

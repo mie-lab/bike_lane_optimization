@@ -226,7 +226,13 @@ def graph_from_integer_solution(result_df):
 
 
 def pareto_frontier(
-    G_original, capacity_values, shared_lane_factor, return_list=False, sp_method="all_pairs", od_matrix=None
+    G_original,
+    capacity_values,
+    shared_lane_factor,
+    return_list=False,
+    sp_method="all_pairs",
+    od_matrix=None,
+    weight_od_flow=False,
 ):
     """
     Round with different cutoffs and thereby compute pareto frontier
@@ -275,8 +281,8 @@ def pareto_frontier(
         G_lane = add_bike_and_car_time(G_lane, bike_G, car_G, shared_lane_factor)
         # measure weighted times (floyd-warshall)
         if sp_method == "od":
-            bike_travel_time = od_sp(G_lane, od_matrix, weight="biketime")
-            car_travel_time = od_sp(G_lane, od_matrix, weight="cartime")
+            bike_travel_time = od_sp(G_lane, od_matrix, weight="biketime", weight_od_flow=weight_od_flow)
+            car_travel_time = od_sp(G_lane, od_matrix, weight="cartime", weight_od_flow=weight_od_flow)
         elif sp_method == "all_pairs":
             bike_travel_time = np.mean(pd.DataFrame(nx.floyd_warshall(G_lane, weight="biketime")).values)
             car_travel_time = np.mean(pd.DataFrame(nx.floyd_warshall(G_lane, weight="cartime")).values)

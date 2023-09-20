@@ -148,6 +148,7 @@ if __name__ == "__main__":
     OUT_PATH = args.out_path
     SP_METHOD = args.sp_method
     out_path_ending = "_od" if SP_METHOD == "od" else ""
+    WEIGHT_OD_FLOW = False
     os.makedirs(OUT_PATH, exist_ok=True)
 
     # generate lane graph with snman
@@ -178,7 +179,7 @@ if __name__ == "__main__":
     if args.run_betweenness:
         print("Running betweenness algorithm for pareto frontier...")
         # run betweenness centrality algorithm for comparison
-        pareto_between = betweenness_pareto(G_lane, sp_method=SP_METHOD, od_matrix=od)
+        pareto_between = betweenness_pareto(G_lane, sp_method=SP_METHOD, od_matrix=od, weight_od_flow=WEIGHT_OD_FLOW)
         pareto_between.to_csv(os.path.join(OUT_PATH, f"real_pareto_betweenness{out_path_ending}.csv"), index=False)
 
     G_street = lane_to_street_graph(G_lane)
@@ -192,6 +193,7 @@ if __name__ == "__main__":
         bike_flow_constant=FLOW_CONSTANT,
         car_flow_constant=FLOW_CONSTANT,
         shared_lane_factor=shared_lane_factor,
+        weight_od_flow=WEIGHT_OD_FLOW,
     )
     toc = time.time()
     print("Finish init", toc - tic)
@@ -210,7 +212,12 @@ if __name__ == "__main__":
     # compute the paretor frontier
     tic = time.time()
     pareto_df = pareto_frontier(
-        G_lane, capacity_values, shared_lane_factor=shared_lane_factor, sp_method=SP_METHOD, od_matrix=od
+        G_lane,
+        capacity_values,
+        shared_lane_factor=shared_lane_factor,
+        sp_method=SP_METHOD,
+        od_matrix=od,
+        weight_od_flow=WEIGHT_OD_FLOW,
     )
     print("Time pareto", time.time() - tic)
     pareto_df.to_csv(os.path.join(OUT_PATH, f"real_pareto_df{out_path_ending}.csv"), index=False)

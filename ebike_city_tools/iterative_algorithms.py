@@ -176,7 +176,7 @@ def greedy_betweenness(lane_graph_inp, bike_edges_to_add=None):
     return bike_graph, lane_graph
 
 
-def betweenness_pareto(G_lane, od_matrix=None, sp_method="all_pairs", shared_lane_factor=2):
+def betweenness_pareto(G_lane, od_matrix=None, sp_method="all_pairs", shared_lane_factor=2, weight_od_flow=False):
     def add_metrics(bike_edges, car_G, G_lane, num_added_edges):
         """function to add the metrics to the final list"""
         # generate bike_G from bike edges
@@ -192,8 +192,8 @@ def betweenness_pareto(G_lane, od_matrix=None, sp_method="all_pairs", shared_lan
         G_lane = add_bike_and_car_time(G_lane, bike_G, car_G, shared_lane_factor)
         # measure weighted times (floyd-warshall)
         if sp_method == "od":
-            bike_travel_time = od_sp(G_lane, od_matrix, weight="biketime")
-            car_travel_time = od_sp(G_lane, od_matrix, weight="cartime")
+            bike_travel_time = od_sp(G_lane, od_matrix, weight="biketime", weight_od_flow=weight_od_flow)
+            car_travel_time = od_sp(G_lane, od_matrix, weight="cartime", weight_od_flow=weight_od_flow)
         else:
             bike_travel_time = np.mean(pd.DataFrame(nx.floyd_warshall(G_lane, weight="biketime")).values)
             car_travel_time = np.mean(pd.DataFrame(nx.floyd_warshall(G_lane, weight="cartime")).values)

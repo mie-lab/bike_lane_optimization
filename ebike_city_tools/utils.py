@@ -148,21 +148,19 @@ def add_bike_and_car_time(G_lane, bike_G, car_G, shared_lane_factor=2):
 
         # 1) Car travel time: simply check whether the edge exists:
         if (u, v) in car_edges:
-            G_lane.edges[e]["cartime"] = attributes["distance"] / attributes["speed_limit"]
+            G_lane.edges[e]["cartime"] = 60 * attributes["distance"] / attributes["speed_limit"]
         else:
             G_lane.edges[e]["cartime"] = np.inf
 
         # 2) Bike travel time
         # Case 1: There is a bike lane on this edge
         if (u, v) in bike_edges:
-            G_lane.edges[e]["biketime"] = compute_bike_time(attributes["distance"], attributes["gradient"])
+            G_lane.edges[e]["biketime"] = 60 * compute_bike_time(attributes["distance"], attributes["gradient"])
         # Case 2: There is no bike lane, but a car lane in the right direction --> multiply with shared_lane_factor
         elif (u, v) in car_edges:
-            if attributes["gradient"] > 0:
-                # speed is given in km/h, distance is given in km?
-                G_lane.edges[e]["biketime"] = shared_lane_factor * compute_bike_time(
-                    attributes["distance"], attributes["gradient"]
-                )
+            G_lane.edges[e]["biketime"] = (
+                60 * shared_lane_factor * compute_bike_time(attributes["distance"], attributes["gradient"])
+            )
         # Case 3: Neither a bike lane nor a directed car lane exists
         else:
             G_lane.edges[e]["biketime"] = np.inf
