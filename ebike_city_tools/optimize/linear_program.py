@@ -74,7 +74,8 @@ def define_IP(
     if weight_od_flow and od_df is not None:
         od_weighting = od_df["trips_per_day"].values
     else:
-        od_weighting = np.ones(len(od_flow))
+        # don't weight by the flow, but still keep the values for auxiliary OD-pairs at zero
+        od_weighting = (od_df["trips_per_day"].values > 0).astype(int)
 
     print("Number of flow variables", len(od_flow), m, len(od_flow) * m)
 
