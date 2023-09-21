@@ -177,13 +177,13 @@ def iteratively_redistribute_edges(car_G, bike_G, unique_edges, stop_ub_zero=Tru
         if bike_edges_to_add is not None and edges_added_counter >= bike_edges_to_add:
             break
         # second stopping option: we add all bike edges that are not zero capacity (when possible without disconnecting)
-        if stop_ub_zero and row["u_b(e)"] == 0 and bike_edges_to_add is None:
+        if stop_ub_zero and row["u_b(e)"] == 0:
             break
     assert nx.is_strongly_connected(car_G)
     return bike_G, car_G
 
 
-def rounding_and_splitting(result_df):
+def rounding_and_splitting(result_df, bike_edges_to_add=None):
     # Initial car graph is one with all the car capacity values rounded up
     car_G = ceiled_car_graph(result_df.copy())
     assert nx.is_strongly_connected(car_G)
@@ -194,9 +194,11 @@ def rounding_and_splitting(result_df):
     # sort list of edges for prioritizing
     unique_edges.sort_values("u_b(e)", inplace=True, ascending=False)
 
-    print("Start graph edges", bike_G.number_of_edges(), car_G.number_of_edges())
+    # print("Start graph edges", bike_G.number_of_edges(), car_G.number_of_edges())
 
-    bike_G, car_G = iteratively_redistribute_edges(car_G, bike_G, unique_edges, stop_ub_zero=True)
+    bike_G, car_G = iteratively_redistribute_edges(
+        car_G, bike_G, unique_edges, stop_ub_zero=True, bike_edges_to_add=bike_edges_to_add
+    )
     return bike_G, car_G
 
 
@@ -268,7 +270,7 @@ def pareto_frontier(
         # perform rounding with cutoff point
         if bike_edges_to_add > 0:
             bike_G, car_G = iteratively_redistribute_edges(
-                car_G, bike_G, unique_edges, stop_ub_zero=True, bike_edges_to_add=bike_edges_to_add
+                car_G, bike_G, unique_edges, stop_ub_zero=False, bike_edges_to_add=bike_edges_to_add
             )
         # check whether we already had this number of bike edges -> finished
         if bike_G.number_of_edges() == num_bike_edges and bike_edges_to_add > 1:

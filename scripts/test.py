@@ -26,7 +26,7 @@ if __name__ == "__main__":
     # FACTOR_MAX_PATHS = 0.5  # only half of the paths are allowed to use the same street
     # cap_factor = max_paths_one_edge * FACTOR_MAX_PATHS
 
-    optim = Optimizer(graph=G_street, od_matrix=od, integer_problem=True, shared_lane_factor=shared_lane_factor)
+    optim = Optimizer(graph=G_street, od_matrix=od, car_weight=5, shared_lane_factor=shared_lane_factor)
     optim.init_lp()
     obj_value = optim.optimize()
     capacity_values, flow_df = optim.get_solution(return_flow=True)

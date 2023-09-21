@@ -126,7 +126,9 @@ def extend_od_matrix(od, nodes):
 
 
 def compute_bike_time(distance, gradient):
-    """Following the formula from Parkin and Rotheram (2010)"""
+    """
+    Following the formula from Parkin and Rotheram (2010)
+    """
     if gradient > 0:
         # gradient positive -> reduced speed
         return distance / max([21.6 - 1.44 * gradient, 1])  # at least 1kmh speed
@@ -137,6 +139,7 @@ def compute_bike_time(distance, gradient):
 
 def add_bike_and_car_time(G_lane, bike_G, car_G, shared_lane_factor=2):
     """
+    DEPRECATED --> use function below (output_lane_graph)
     Add two attributes to the graph G_lane: biketime and cartime
     """
     bike_edges = bike_G.edges()
@@ -165,3 +168,89 @@ def add_bike_and_car_time(G_lane, bike_G, car_G, shared_lane_factor=2):
         else:
             G_lane.edges[e]["biketime"] = np.inf
     return G_lane
+
+
+def output_lane_graph(G_lane, bike_G, car_G, shared_lane_factor=2):
+    """
+    Output a lane graph in the format of the SNMan standard.
+    Arguments:
+        G_lane: Input lane graph (original street network) -> this is used to get the edge attributes
+        car_G: nx.MultiDiGraph, Output graph of car network
+        bike_G: nx.MultiGraph, Output graph of bike network
+    """
+
+    def compute_car_time(row):
+        if row["lanetype"] == "M":
+            return 60 * row["distance"] / row["speed_limit"]
+        else:
+            return np.inf
+
+    def compute_edgedependent_bike_time(row):
+        """Following the formula from Parkin and Rotheram (2010)"""
+        biketime = compute_bike_time(row["distance"], row["gradient"])
+        if row["lanetype"] == "P":
+            return biketime
+        else:
+            return biketime * shared_lane_factor
+
+    assert bike_G.number_of_edges() + car_G.number_of_edges() == G_lane.number_of_edges()
+
+    # Step 1: make one dataframe of all car and bike edges
+    car_edges = nx.to_pandas_edgelist(car_G)
+    car_edges["lane"] = "M>"
+    car_edges["lanetype"] = "M"
+    bike_edges = nx.to_pandas_edgelist(bike_G.to_directed())
+    bike_edges["lane"] = "P>"
+    bike_edges["lanetype"] = "P"
+    all_edges = pd.concat([car_edges, bike_edges])
+    all_edges["direction"] = ">"
+
+    # Step 2: get all attributes of the original edges (in both directions)
+    edges_G_lane = nx.to_pandas_edgelist(G_lane)
+    # revert edges
+    edges_G_lane_reversed = edges_G_lane.copy()
+    edges_G_lane_reversed["gradient"] *= -1
+    edges_G_lane_reversed["source_temp"] = edges_G_lane_reversed["source"]
+    edges_G_lane_reversed["source"] = edges_G_lane_reversed["target"]
+    edges_G_lane_reversed["target"] = edges_G_lane_reversed["source_temp"]
+    # concat
+    edges_G_lane_doubled = pd.concat([edges_G_lane, edges_G_lane_reversed])
+    # extract relevant attributes --> these are all attributes that we can merge with the others
+    edges_G_lane_doubled = edges_G_lane_doubled.groupby(["source", "target"]).agg(
+        {
+            "length": "first",
+            "distance": "first",
+            "width": "first",
+            "speed_limit": "first",
+            "gradient": "first",
+            "fixed": "first",
+        }
+    )
+
+    # Step 3: Merge with the attributes
+    all_edges_with_attributes = all_edges.merge(
+        edges_G_lane_doubled, how="left", left_on=["source", "target"], right_on=["source", "target"]
+    )
+    # Step 4: compute bike and car time
+    all_edges_with_attributes["car_time"] = all_edges_with_attributes.apply(compute_car_time, axis=1)
+    all_edges_with_attributes["bike_time"] = all_edges_with_attributes.apply(compute_edgedependent_bike_time, axis=1)
+
+    # Step 5: make a graph
+    attrs = [c for c in all_edges_with_attributes.columns if c not in ["source", "target"]]
+    G_final = nx.from_pandas_edgelist(
+        all_edges_with_attributes, edge_attr=attrs, source="source", target="target", create_using=nx.MultiDiGraph
+    )
+    return G_final
+
+
+def filter_by_attribute(G, attr, attr_value):
+    """
+    Create a subgraph of G consisting of the edges with attr=attr_value
+    """
+    edges_df = nx.to_pandas_edgelist(G)
+    edges_df = edges_df[edges_df[attr] == attr_value]
+    attr_cols = [c for c in edges_df.columns if c not in ["source", "target"]]
+    G_filtered = nx.from_pandas_edgelist(
+        edges_df, edge_attr=attr_cols, source="source", target="target", create_using=type(G)
+    )
+    return G_filtered
