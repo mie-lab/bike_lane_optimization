@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 from collections import defaultdict
 
-from ebike_city_tools.utils import lossless_to_undirected, add_bike_and_car_time
+from ebike_city_tools.utils import lossless_to_undirected, output_lane_graph
 from ebike_city_tools.metrics import od_sp
 
 
@@ -189,14 +189,14 @@ def betweenness_pareto(G_lane, od_matrix=None, sp_method="all_pairs", shared_lan
 
         # transform the graph layout into travel times, including gradient and penalty factor for using
         # car lanes by bike
-        G_lane = add_bike_and_car_time(G_lane, bike_G, car_G, shared_lane_factor)
+        G_lane_output = output_lane_graph(G_lane, bike_G, car_G, shared_lane_factor)
         # measure weighted times (floyd-warshall)
         if sp_method == "od":
-            bike_travel_time = od_sp(G_lane, od_matrix, weight="biketime", weight_od_flow=weight_od_flow)
-            car_travel_time = od_sp(G_lane, od_matrix, weight="cartime", weight_od_flow=weight_od_flow)
+            bike_travel_time = od_sp(G_lane_output, od_matrix, weight="biketime", weight_od_flow=weight_od_flow)
+            car_travel_time = od_sp(G_lane_output, od_matrix, weight="cartime", weight_od_flow=weight_od_flow)
         else:
-            bike_travel_time = np.mean(pd.DataFrame(nx.floyd_warshall(G_lane, weight="biketime")).values)
-            car_travel_time = np.mean(pd.DataFrame(nx.floyd_warshall(G_lane, weight="cartime")).values)
+            bike_travel_time = np.mean(pd.DataFrame(nx.floyd_warshall(G_lane_output, weight="biketime")).values)
+            car_travel_time = np.mean(pd.DataFrame(nx.floyd_warshall(G_lane_output, weight="cartime")).values)
         pareto_df.append(
             {
                 "bike_edges_added": num_added_edges,

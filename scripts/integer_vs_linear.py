@@ -6,7 +6,7 @@ import pandas as pd
 from ebike_city_tools.random_graph import random_lane_graph
 from ebike_city_tools.optimize.utils import make_fake_od
 from ebike_city_tools.optimize.optimizer import Optimizer
-from ebike_city_tools.utils import add_bike_and_car_time, lane_to_street_graph, extend_od_circular
+from ebike_city_tools.utils import output_lane_graph, lane_to_street_graph, extend_od_circular
 from ebike_city_tools.metrics import sp_length
 from ebike_city_tools.optimize.round_simple import ceiled_car_graph, pareto_frontier, graph_from_integer_solution
 
@@ -57,10 +57,10 @@ if __name__ == "__main__":
                         if integer_problem:
                             bike_G, car_G = graph_from_integer_solution(capacity_values)
                             # car lanes by bike
-                            G_lane = add_bike_and_car_time(G_lane, bike_G, car_G, shared_lane_factor)
+                            G_lane_new = output_lane_graph(G_lane, bike_G, car_G, shared_lane_factor)
                             # measure weighted times (floyd-warshall)
-                            bike_travel_time = sp_length(G_lane, attr="biketime")
-                            car_travel_time = sp_length(G_lane, attr="cartime")
+                            bike_travel_time = sp_length(G_lane_new, attr="biketime")
+                            car_travel_time = sp_length(G_lane_new, attr="cartime")
                             res_dict_list = [{"bike_time": bike_travel_time, "car_time": car_travel_time}]
                         else:
                             # for linear, we have to compute the paretor frontier

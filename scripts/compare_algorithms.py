@@ -6,7 +6,7 @@ from ebike_city_tools.random_graph import *
 from ebike_city_tools.visualize import *
 from ebike_city_tools.metrics import *
 from ebike_city_tools.optimize.optimizer import run_optimization
-from ebike_city_tools.utils import add_bike_and_car_time
+from ebike_city_tools.utils import output_lane_graph
 
 ITERS_TEST = 3
 OUT_PATH = "outputs"
@@ -60,7 +60,7 @@ for i in range(ITERS_TEST):
             df.loc[algorithm, "runtime"] = runtime
 
         # Compute weightest shortest path length for both
-        G_lane = add_bike_and_car_time(base_graph, bike_graph, car_graph)
+        G_lane = output_lane_graph(base_graph, bike_graph, car_graph)
         df.loc[algorithm, "bike_travel_time"] = sp_length(G_lane, attr="biketime")
         df.loc[algorithm, "car_travel_time"] = sp_length(G_lane, attr="cartime")
 
@@ -68,7 +68,7 @@ for i in range(ITERS_TEST):
         for metric in metrics_for_eval:
             df.loc["original", "car_" + metric] = eval(metric)(base_graph)
             df.loc["original", "runtime"] = 0
-            G_lane = add_bike_and_car_time(base_graph, nx.Graph(), base_graph)
+            G_lane = output_lane_graph(base_graph, nx.Graph(), base_graph)
             df.loc["original", "car_travel_time"] = sp_length(G_lane, attr="cartime")
             # df.loc["original", "bike_" + metric] = 0 # could fill with 0 for some metrics and inf for others
 

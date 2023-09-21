@@ -170,7 +170,13 @@ def add_bike_and_car_time(G_lane, bike_G, car_G, shared_lane_factor=2):
     return G_lane
 
 
-def output_lane_graph(G_lane, bike_G, car_G, shared_lane_factor=2):
+def output_lane_graph(
+    G_lane,
+    bike_G,
+    car_G,
+    shared_lane_factor=2,
+    output_attr=["width", "distance", "length", "speed_limit", "fixed", "gradient"],
+):
     """
     Output a lane graph in the format of the SNMan standard.
     Arguments:
@@ -187,7 +193,7 @@ def output_lane_graph(G_lane, bike_G, car_G, shared_lane_factor=2):
 
     def compute_edgedependent_bike_time(row):
         """Following the formula from Parkin and Rotheram (2010)"""
-        biketime = compute_bike_time(row["distance"], row["gradient"])
+        biketime = 60 * compute_bike_time(row["distance"], row["gradient"])
         if row["lanetype"] == "P":
             return biketime
         else:
@@ -216,24 +222,16 @@ def output_lane_graph(G_lane, bike_G, car_G, shared_lane_factor=2):
     # concat
     edges_G_lane_doubled = pd.concat([edges_G_lane, edges_G_lane_reversed])
     # extract relevant attributes --> these are all attributes that we can merge with the others
-    edges_G_lane_doubled = edges_G_lane_doubled.groupby(["source", "target"]).agg(
-        {
-            "length": "first",
-            "distance": "first",
-            "width": "first",
-            "speed_limit": "first",
-            "gradient": "first",
-            "fixed": "first",
-        }
-    )
+    agg_dict = {attr: "first" for attr in output_attr if attr in edges_G_lane_doubled.columns}
+    edges_G_lane_doubled = edges_G_lane_doubled.groupby(["source", "target"]).agg(agg_dict)
 
     # Step 3: Merge with the attributes
     all_edges_with_attributes = all_edges.merge(
         edges_G_lane_doubled, how="left", left_on=["source", "target"], right_on=["source", "target"]
     )
     # Step 4: compute bike and car time
-    all_edges_with_attributes["car_time"] = all_edges_with_attributes.apply(compute_car_time, axis=1)
-    all_edges_with_attributes["bike_time"] = all_edges_with_attributes.apply(compute_edgedependent_bike_time, axis=1)
+    all_edges_with_attributes["cartime"] = all_edges_with_attributes.apply(compute_car_time, axis=1)
+    all_edges_with_attributes["biketime"] = all_edges_with_attributes.apply(compute_edgedependent_bike_time, axis=1)
 
     # Step 5: make a graph
     attrs = [c for c in all_edges_with_attributes.columns if c not in ["source", "target"]]
