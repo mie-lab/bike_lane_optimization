@@ -62,6 +62,7 @@ def lane_optimization(L, od_df=None, edge_fraction=0.4, shared_lane_factor=2, ve
     """
     # add some edge attributes that we need for the optimization (e.g. slope)
     G_lane = adapt_edge_attributes(L)
+    G_lane.remove_edges_from(nx.selfloop_edges(G_lane))
 
     for u, v, d in G_lane.edges(data=True):
         if pd.isna(d["gradient"]):
@@ -85,12 +86,10 @@ def lane_optimization(L, od_df=None, edge_fraction=0.4, shared_lane_factor=2, ve
         if pd.isna(d["gradient"]):
             print("street NAN")
 
-    nx.write_edgelist(G_street, "failed_graph.edgelist")
-
     ip = define_IP(
         G_street,
         cap_factor=1,
-        car_weight=1,
+        car_weight=10,
         od_df=od,
         bike_flow_constant=FLOW_CONSTANT,
         car_flow_constant=FLOW_CONSTANT,

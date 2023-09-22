@@ -87,7 +87,7 @@ def ceiled_car_graph(result_df):
     street_df["u_c(e)"] = np.ceil(street_df["u_c(e)"])
     street_df["u_c(e)_reversed"] = np.ceil(street_df["u_c(e)_reversed"])
 
-    # identify problematic rows and fix them
+    # identify problematic rows and fix them -> TODO: does lead to unconnected graph sometimes
     row_is_problem = street_df["u_c(e)"] + street_df["u_c(e)_reversed"] > street_df["capacity"]
     fixed_rows = street_df[row_is_problem].apply(decrease_problematic, axis=1)
     fixed_street_df = pd.concat([fixed_rows, street_df[~row_is_problem]])
