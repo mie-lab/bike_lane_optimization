@@ -1,6 +1,7 @@
 import networkx as nx
 import numpy as np
 import pandas as pd
+from collections import defaultdict
 
 
 def lossless_to_undirected(graph):
@@ -17,11 +18,45 @@ def lossless_to_undirected(graph):
     return graph_undir
 
 
-def lane_to_street_graph(G_lane):
+def lane_to_street_graph(g_lane):
+    # transform into an undirected street graph
+    g_street = nx.Graph(g_lane)
+    # aggregate capacities (they should be the same)
+    # caps = nx.get_edge_attributes(g_lane, "capacity")  # TODO
+    caps_g_street = defaultdict(int)
+    # iterate over the original edges and set capacities (same for forward and backward edge)
+    for u, v, d in g_lane.edges(data=True):
+        if u < v:
+            caps_g_street[(u, v)] += d["capacity"]  # add the capacity of this lane
+        else:
+            caps_g_street[(v, u)] += d["capacity"]
+    nx.set_edge_attributes(g_street, caps_g_street, "capacity")
+
+    # now make it directed -> will automatically replace every edge by two
+    g_street = g_street.to_directed()
+
+    # get original gradients
+    for u, v in g_street.edges():
+        if (u, v) in g_lane.edges():
+            g_street[u][v]["gradient"] = g_lane[u][v][list(g_lane[u][v].keys())[0]]["gradient"]
+        # only the edge in the opposite direction existed in the original graph
+        elif (v, u) in g_lane.edges():
+            g_street[u][v]["gradient"] = -1 * g_lane[v][u][list(g_lane[v][u].keys())[0]]["gradient"]
+        else:
+            raise RuntimeError(
+                "This should not happen, all edges in g_street should be in g_lane in one dir or the other"
+            )
+    assert nx.is_strongly_connected(g_street)
+    return g_street
+
+
+def deprecated_lane_to_street_graph(G_lane):
     # convert to dataframe
     G_dataframe = nx.to_pandas_edgelist(G_lane)
     G_dataframe = G_dataframe[["source", "target", "capacity", "gradient", "distance", "speed_limit"]]
-    assert all(G_dataframe["source"] != G_dataframe["target"])
+    # remove loops
+    G_dataframe = G_dataframe[G_dataframe["source"] != G_dataframe["target"]]
+    # make undirected graph
     G_dataframe["source undir"] = G_dataframe[["source", "target"]].min(axis=1)
     G_dataframe["target undir"] = G_dataframe[["source", "target"]].max(axis=1)
     # G_dataframe.apply(lambda x: tuple(sorted([x["source"], x["target"]])), axis=1)
@@ -76,6 +111,9 @@ def extend_od_circular(od, nodes):
 
     # concatenate and add flow of 0 to the new OD pairs
     od_new = pd.concat([od, new_od_paths]).fillna(0).astype(int)
+
+    # make sure that no loops
+    od_new = od_new[od_new["s"] != od_new["t"]]
     return od_new.drop_duplicates()
 
 
@@ -238,6 +276,8 @@ def output_lane_graph(
     G_final = nx.from_pandas_edgelist(
         all_edges_with_attributes, edge_attr=attrs, source="source", target="target", create_using=nx.MultiDiGraph
     )
+    # make sure that the other attributes are transferred to the new graph
+    G_final = transfer_node_attributes(G_lane, G_final)
     return G_final
 
 
@@ -251,4 +291,19 @@ def filter_by_attribute(G, attr, attr_value):
     G_filtered = nx.from_pandas_edgelist(
         edges_df, edge_attr=attr_cols, source="source", target="target", create_using=type(G)
     )
+    # make sure that the other attributes are transferred to the new graph
+    G_filtered = transfer_node_attributes(G, G_filtered)
     return G_filtered
+
+
+def transfer_node_attributes(G_in, G_out):
+    for n, data in G_in.nodes(data=True):
+        attr_keys = data.keys()
+        break
+    for a in attr_keys:
+        attr_dict = nx.get_node_attributes(G_in, a)
+        nx.set_node_attributes(G_out, attr_dict, name=a)
+    # transfer graph
+    for k in G_in.graph.keys():
+        G_out.graph[k] = G_in.graph[k]
+    return G_out

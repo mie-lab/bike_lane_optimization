@@ -80,7 +80,7 @@ def define_IP(
         if np.all(od_weighting == 0):
             od_weighting = np.ones(len(od_weighting))
 
-    print("Number of flow variables", len(od_flow), m, len(od_flow) * m)
+    print(f"Number of flow variables: {len(od_flow) * m} ({m} edges and {len(od_flow)} OD pairs)")
 
     capacities = nx.get_edge_attributes(G, "capacity")
     distance = nx.get_edge_attributes(G, "distance")
