@@ -21,6 +21,7 @@ G_lane = random_lane_graph(n)
 G = lane_to_street_graph(G_lane)
 # full od matrix
 od_full = pd.DataFrame(np.array([[i, j] for i in range(n) for j in range(n)]), columns=["s", "t"])
+od_full["trips_per_day"] = 1
 
 res_df = []
 # run several times to remove different parts from the OD matrix
