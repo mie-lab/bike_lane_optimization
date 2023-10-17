@@ -248,6 +248,7 @@ def output_lane_graph(
     bike_edges["lanetype"] = "P"
     all_edges = pd.concat([car_edges, bike_edges])
     all_edges["direction"] = ">"
+    all_edges.drop(output_attr, axis=1, inplace=True, errors="ignore")
 
     # Step 2: get all attributes of the original edges (in both directions)
     edges_G_lane = nx.to_pandas_edgelist(G_lane)

@@ -197,7 +197,11 @@ def rounding_and_splitting(result_df, bike_edges_to_add=None):
     # print("Start graph edges", bike_G.number_of_edges(), car_G.number_of_edges())
 
     bike_G, car_G = iteratively_redistribute_edges(
-        car_G, bike_G, unique_edges, stop_ub_zero=True, bike_edges_to_add=bike_edges_to_add
+        car_G,
+        bike_G,
+        unique_edges,
+        stop_ub_zero=True,
+        bike_edges_to_add=max([0, bike_edges_to_add - bike_G.number_of_edges()]),
     )
     return bike_G, car_G
 

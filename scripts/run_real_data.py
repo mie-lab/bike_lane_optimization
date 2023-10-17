@@ -81,6 +81,7 @@ def generate_motorized_lane_graph(
     node_path,
     source_lanes_attribute=KEY_LANES_DESCRIPTION,
     target_lanes_attribute=KEY_LANES_DESCRIPTION_AFTER,
+    return_H=False,
 ):
     G = io.load_street_graph(edge_path, node_path)  # initialize lanes after rebuild
     # need to save the maxspeed attribute here to use it later
@@ -100,11 +101,13 @@ def generate_motorized_lane_graph(
     L = graph_utils.keep_only_the_largest_connected_component(L)
     # add some edge attributes that we need for the optimization (e.g. slope)
     L = adapt_edge_attributes(L)
+    if return_H:
+        return H, L
     return L
 
 
 if __name__ == "__main__":
-    np.random.seed(42)
+    np.random.seed(1)
     parser = argparse.ArgumentParser()
     parser.add_argument("-d", "--data_path", default="../street_network_data/zollikerberg", type=str)
     parser.add_argument("-o", "--out_path", default="outputs", type=str)
