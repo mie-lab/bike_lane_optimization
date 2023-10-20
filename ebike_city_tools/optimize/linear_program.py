@@ -56,15 +56,15 @@ def define_IP(
     edges_car_bike_list = list(set(edges_bike_list) | set(edges_car_list))
 
     node_list = list(G.nodes)
-    n = len(G.nodes)
-    m = len(G.edges)
+    number_nodes = len(G.nodes)
+    number_edges = len(G.edges)
     b = len(edges_bike_list)
     c = len(edges_car_list)
     union = len(edges_car_bike_list)
 
     # take into account OD matrix (if None, make all-pairs OD)
     if od_df is None:
-        od_flow = np.array([[i, j] for i in range(n) for j in range(n)])
+        od_flow = np.array([[i, j] for i in range(number_nodes) for j in range(number_nodes)])
         print("USING ALL-CONNECTED OD FLOW", len(od_flow))
     else:
         # for now, just extract s t columns and ignore how much flow
@@ -80,7 +80,7 @@ def define_IP(
         if np.all(od_weighting == 0):
             od_weighting = np.ones(len(od_weighting))
 
-    print(f"Number of flow variables: {len(od_flow) * m} ({m} edges and {len(od_flow)} OD pairs)")
+    print(f"Number of flow variables: {len(od_flow) * number_edges} ({number_edges} edges and {len(od_flow)} OD pairs)")
 
     capacities = nx.get_edge_attributes(G, "capacity")
     distance = nx.get_edge_attributes(G, "distance")
@@ -102,15 +102,15 @@ def define_IP(
     # flow variables
 
     var_f_car = [
-        [streetIP.add_var(name=f"f_{s},{t},{e},c", lb=0, var_type=var_type) for e in range(m)] for (s, t) in od_flow
+        [streetIP.add_var(name=f"f_{s},{t},{e},c", lb=0, var_type=var_type) for e in range(number_edges)] for (s, t) in od_flow
     ]
     var_f_bike = [
-        [streetIP.add_var(name=f"f_{s},{t},{e},b", lb=0, var_type=var_type) for e in range(m)] for (s, t) in od_flow
+        [streetIP.add_var(name=f"f_{s},{t},{e},b", lb=0, var_type=var_type) for e in range(number_edges)] for (s, t) in od_flow
     ]
     if shared_lane_variables:
         # if allowing for shared lane usage between cars and bike, set additional variables
         var_f_shared = [
-            [streetIP.add_var(name=f"f_{s},{t},{e},s", lb=0, var_type=var_type) for e in range(m)] for (s, t) in od_flow
+            [streetIP.add_var(name=f"f_{s},{t},{e},s", lb=0, var_type=var_type) for e in range(number_edges)] for (s, t) in od_flow
         ]
     # capacity variables
     cap_bike = [streetIP.add_var(name=f"u_{e},b", lb=0, var_type=var_type) for e in range(b)]
@@ -140,68 +140,39 @@ def define_IP(
 
     for v in node_list:
         for od_ind, (s, t) in enumerate(od_flow):
-            streetIP += f_bike(od_ind, e) >= 0
-            streetIP += f_car(od_ind, e) >= 0
-            streetIP += f_shared(od_ind, e) >= 0
+            def add_flow_constraints(streetIP, bike_excess, car_excess) :
+                if shared_lane_variables:
+                    streetIP += (
+                        mip.xsum(f_shared(od_ind, e) + f_bike(od_ind, e) for e in G.out_edges(v))
+                        - mip.xsum(f_shared(od_ind, e) + f_bike(od_ind, e) for e in G.in_edges(v))
+                        == bike_excess
+                    )
+                else:
+                    streetIP += (
+                        mip.xsum(f_bike(od_ind, e) for e in G.out_edges(v))
+                        - mip.xsum(f_bike(od_ind, e) for e in G.in_edges(v))
+                        == bike_excess
+                    )
+                streetIP += (
+                    mip.xsum(f_car(od_ind, e) for e in G.out_edges(v))
+                    - mip.xsum(f_car(od_ind, e) for e in G.in_edges(v))
+                    == car_excess
+                )
+            #Not needed, as we specified a lb on the variables
+            # streetIP += f_bike(od_ind, e) >= 0
+            # streetIP += f_car(od_ind, e) >= 0
+            # streetIP += f_shared(od_ind, e) >= 0
             if s == t:
                 for e in G.out_edges(v):
                     streetIP += f_bike(od_ind, e) == 0
                     streetIP += f_shared(od_ind, e) == 0
                     streetIP += f_car(od_ind, e) == 0
             elif v == s:
-                if shared_lane_variables:
-                    streetIP += (
-                        mip.xsum(f_shared(od_ind, e) + f_bike(od_ind, e) for e in G.out_edges(v))
-                        - mip.xsum(f_shared(od_ind, e) + f_bike(od_ind, e) for e in G.in_edges(v))
-                        == bike_flow_constant
-                    )
-                else:
-                    streetIP += (
-                        mip.xsum(f_bike(od_ind, e) for e in G.out_edges(v))
-                        - mip.xsum(f_bike(od_ind, e) for e in G.in_edges(v))
-                        == bike_flow_constant
-                    )
-                streetIP += (
-                    mip.xsum(f_car(od_ind, e) for e in G.out_edges(v))
-                    - mip.xsum(f_car(od_ind, e) for e in G.in_edges(v))
-                    == car_flow_constant
-                )
+                add_flow_constraints(streetIP, bike_flow_constant, car_flow_constant)
             elif v == t:
-                if shared_lane_variables:
-                    streetIP += (
-                        mip.xsum(f_shared(od_ind, e) + f_bike(od_ind, e) for e in G.out_edges(v))
-                        - mip.xsum(f_shared(od_ind, e) + f_bike(od_ind, e) for e in G.in_edges(v))
-                        == -bike_flow_constant
-                    )
-                else:
-                    streetIP += (
-                        mip.xsum(f_bike(od_ind, e) for e in G.out_edges(v))
-                        - mip.xsum(f_bike(od_ind, e) for e in G.in_edges(v))
-                        == -bike_flow_constant
-                    )
-                streetIP += (
-                    mip.xsum(f_car(od_ind, e) for e in G.out_edges(v))
-                    - mip.xsum(f_car(od_ind, e) for e in G.in_edges(v))
-                    == -car_flow_constant
-                )
+                add_flow_constraints(streetIP, -bike_flow_constant, -car_flow_constant)
             else:
-                if shared_lane_variables:
-                    streetIP += (
-                        mip.xsum(f_shared(od_ind, e) + f_bike(od_ind, e) for e in G.out_edges(v))
-                        - mip.xsum(f_shared(od_ind, e) + f_bike(od_ind, e) for e in G.in_edges(v))
-                        == 0
-                    )
-                else:
-                    streetIP += (
-                        mip.xsum(f_bike(od_ind, e) for e in G.out_edges(v))
-                        - mip.xsum(f_bike(od_ind, e) for e in G.in_edges(v))
-                        == 0
-                    )
-                streetIP += (
-                    mip.xsum(f_car(od_ind, e) for e in G.out_edges(v))
-                    - mip.xsum(f_car(od_ind, e) for e in G.in_edges(v))
-                    == 0
-                )
+                add_flow_constraints(streetIP, 0,0)
 
     # # Capacity constraints - V1
     for od_ind in range(len(od_flow)):
@@ -221,12 +192,14 @@ def define_IP(
             )
     for i in range(union):
         # take half - edges_car_bike_list[i]=(0,9) dann nehmen wir das (0,9) und die (9,0) capacities
+        head = edges_car_bike_list[i][0]
+        tail = edges_car_bike_list[i][1]
         streetIP += (
-            u_b((edges_car_bike_list[i][0], edges_car_bike_list[i][1])) / 2
-            + u_c((edges_car_bike_list[i][0], edges_car_bike_list[i][1]))
-            + u_c((edges_car_bike_list[i][1], edges_car_bike_list[i][0]))
-            + u_b((edges_car_bike_list[i][1], edges_car_bike_list[i][0])) / 2
-            <= capacities[(edges_car_bike_list[i][0], edges_car_bike_list[i][1])] * cap_factor
+            u_b((head, tail)) / 2
+            + u_c((head, tail))
+            + u_c((tail, head))
+            + u_b((tail, head)) / 2
+            <= capacities[(head, tail)] * cap_factor
         )
 
     # Objective value
