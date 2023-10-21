@@ -208,6 +208,22 @@ def add_bike_and_car_time(G_lane, bike_G, car_G, shared_lane_factor=2):
     return G_lane
 
 
+def compute_car_time(row):
+    if row["lanetype"] == "M":
+        return 60 * row["distance"] / row["speed_limit"]
+    else:
+        return np.inf
+
+
+def compute_edgedependent_bike_time(row, shared_lane_factor=2):
+    """Following the formula from Parkin and Rotheram (2010)"""
+    biketime = 60 * compute_bike_time(row["distance"], row["gradient"])
+    if row["lanetype"] == "P":
+        return biketime
+    else:
+        return biketime * shared_lane_factor
+
+
 def output_lane_graph(
     G_lane,
     bike_G,
@@ -222,20 +238,6 @@ def output_lane_graph(
         car_G: nx.MultiDiGraph, Output graph of car network
         bike_G: nx.MultiGraph, Output graph of bike network
     """
-
-    def compute_car_time(row):
-        if row["lanetype"] == "M":
-            return 60 * row["distance"] / row["speed_limit"]
-        else:
-            return np.inf
-
-    def compute_edgedependent_bike_time(row):
-        """Following the formula from Parkin and Rotheram (2010)"""
-        biketime = 60 * compute_bike_time(row["distance"], row["gradient"])
-        if row["lanetype"] == "P":
-            return biketime
-        else:
-            return biketime * shared_lane_factor
 
     assert bike_G.number_of_edges() + car_G.number_of_edges() == G_lane.number_of_edges()
 
@@ -270,7 +272,9 @@ def output_lane_graph(
     )
     # Step 4: compute bike and car time
     all_edges_with_attributes["cartime"] = all_edges_with_attributes.apply(compute_car_time, axis=1)
-    all_edges_with_attributes["biketime"] = all_edges_with_attributes.apply(compute_edgedependent_bike_time, axis=1)
+    all_edges_with_attributes["biketime"] = all_edges_with_attributes.apply(
+        compute_edgedependent_bike_time, shared_lane_factor=shared_lane_factor, axis=1
+    )
 
     # Step 5: make a graph
     attrs = [c for c in all_edges_with_attributes.columns if c not in ["source", "target"]]
