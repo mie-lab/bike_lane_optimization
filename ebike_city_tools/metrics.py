@@ -2,6 +2,8 @@ import networkx as nx
 import numpy as np
 import pandas as pd
 
+from ebike_city_tools.utils import output_lane_graph
+
 
 # metrics for a directed graph
 def sp_reachability(G):
@@ -62,3 +64,32 @@ def od_sp(G, od, weight, weight_od_flow=False):
 #         list(nx.current_flow_betweenness_centrality(G, weight="weight").values())
 #     )
 #     return metric_dict
+
+
+def compute_travel_times(
+    G_lane, bike_G, car_G, od_matrix=None, sp_method="all_pairs", shared_lane_factor=2, weight_od_flow=False
+):
+    """
+    Compute the travel times of bikes and car in the new lane graph composed of bike_G and car_G.
+    Travel times are either computed over the whole graph (sp_method=all_pairs) or only with respect to the OD matrix
+    if weight_od_flow=True, the travel times are weighted by the flow values
+    """
+    assert sp_method == "all_pairs" or od_matrix is not None, "if sp_method=od, an od matrix must be passed"
+    assert bike_G.number_of_edges() + car_G.number_of_edges() == G_lane.number_of_edges()
+
+    # transform the graph layout into travel times, including gradient and penalty factor for using
+    # car lanes by bike
+    G_lane_output = output_lane_graph(G_lane, bike_G, car_G, shared_lane_factor)
+    # measure weighted times (floyd-warshall)
+    if sp_method == "od":
+        bike_travel_time = od_sp(G_lane_output, od_matrix, weight="biketime", weight_od_flow=weight_od_flow)
+        car_travel_time = od_sp(G_lane_output, od_matrix, weight="cartime", weight_od_flow=weight_od_flow)
+    else:
+        bike_travel_time = np.mean(pd.DataFrame(nx.floyd_warshall(G_lane_output, weight="biketime")).values)
+        car_travel_time = np.mean(pd.DataFrame(nx.floyd_warshall(G_lane_output, weight="cartime")).values)
+    return {
+        "bike_edges": bike_G.number_of_edges(),
+        "car_edges": car_G.number_of_edges(),
+        "bike_time": bike_travel_time,
+        "car_time": car_travel_time,
+    }
