@@ -3,8 +3,7 @@ import pandas as pd
 import numpy as np
 from collections import defaultdict
 
-from ebike_city_tools.utils import lossless_to_undirected
-from ebike_city_tools.utils import compute_edgedependent_bike_time, compute_car_time
+from ebike_city_tools.utils import lossless_to_undirected, compute_edgedependent_bike_time, compute_car_time
 
 
 def extract_spanning_tree(G):
@@ -241,13 +240,14 @@ def betweenness_pareto(
     sp_method="all_pairs",
     shared_lane_factor=2,
     weight_od_flow=False,
-    betweenness_attr="bike_time",
+    betweenness_attr="car_time",
 ):
     """
     Arguments:
         betweenness_attr: String, if car_time, we remove edges with the minimum car_time betweenness centralityk if bike_time, we
             remove edges with the highest bike_time betwenness centrality
     """
+    assert betweenness_attr in ["car_time", "bike_time"]
     # we need the car graph only to check for strongly connected
     car_graph = G_lane.copy()
 
