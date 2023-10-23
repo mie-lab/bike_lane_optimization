@@ -215,13 +215,22 @@ def compute_car_time(row):
         return np.inf
 
 
-def compute_edgedependent_bike_time(row, shared_lane_factor=2):
+def compute_edgedependent_bike_time(row, shared_lane_factor: int = 2):
     """Following the formula from Parkin and Rotheram (2010)"""
     biketime = 60 * compute_bike_time(row["distance"], row["gradient"])
     if row["lanetype"] == "P":
         return biketime
     else:
         return biketime * shared_lane_factor
+
+
+def compute_penalized_car_time(attr_dict: dict, bike_lane_speed: int = 10) -> int:
+    if attr_dict["lanetype"] == "M":
+        return 60 * attr_dict["distance"] / attr_dict["speed_limit"]
+    elif attr_dict["lanetype"] == "P":
+        return 60 * attr_dict["distance"] / bike_lane_speed  # assume speed limit on bike priority lanes
+    else:
+        raise RuntimeError("lanetyp other than M and P not implemented")
 
 
 def output_lane_graph(

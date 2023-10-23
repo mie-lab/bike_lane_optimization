@@ -3,7 +3,12 @@ import pandas as pd
 import numpy as np
 from collections import defaultdict
 
-from ebike_city_tools.utils import lossless_to_undirected, compute_edgedependent_bike_time, compute_car_time
+from ebike_city_tools.utils import (
+    lossless_to_undirected,
+    compute_edgedependent_bike_time,
+    compute_car_time,
+    compute_penalized_car_time,
+)
 
 
 def extract_spanning_tree(G):
@@ -326,11 +331,11 @@ def transform_car_to_bike_edge(G_lane, edge_to_transform, shared_lane_factor):
     # transform the edge into a bike lane
     G_lane.edges[edge_to_transform]["lanetype"] = "P"
     G_lane.edges[edge_to_transform]["car_time"] = np.inf
-    # debugging: -> todo delete
-    new_bike_time = compute_edgedependent_bike_time(
-        G_lane.edges[edge_to_transform], shared_lane_factor=shared_lane_factor
-    )
-    assert new_bike_time == G_lane.edges[edge_to_transform]["bike_time"] / shared_lane_factor
+    # # debugging:
+    # new_bike_time = compute_edgedependent_bike_time(
+    #     G_lane.edges[edge_to_transform], shared_lane_factor=shared_lane_factor
+    # )
+    # assert new_bike_time == G_lane.edges[edge_to_transform]["bike_time"] / shared_lane_factor
     G_lane.edges[edge_to_transform]["bike_time"] = G_lane.edges[edge_to_transform]["bike_time"] / shared_lane_factor
 
     # insert helper edge in the opposite direction - same distance etc
@@ -366,3 +371,76 @@ def optimized_betweenness(lane_graph_inp, nr_iters=1000):
         prev_reward = rew
     # print("final reward", rew)
     return env.bike_graph, env.car_graph
+
+
+def topdown_betweenness_pareto(
+    G_lane,
+    od_matrix=None,
+    sp_method="all_pairs",
+    shared_lane_factor=2,
+    weight_od_flow=False,
+):
+    """
+    Implements the algorithm from Steinacker et al where we start with a full bike network and iteratively remove bike
+    lanes
+    In constrast to the original implementation, we still assume an impact on the car network -> assume 10kmh speed on
+    bike priority lanes
+    """
+
+    # all edges are bike edges
+    is_car_edge = {e: False for e in G_lane.edges(keys=True)}
+    nr_edges = G_lane.number_of_edges()
+
+    # set lanetype to bike -> all car times are inf
+    nx.set_edge_attributes(G_lane, "P", name="lanetype")
+
+    # set bike time attributes of the graph (starting from a graph with only cars)
+    bike_time, car_time = {}, {}
+    for u, v, k, data in G_lane.edges(data=True, keys=True):
+        e = (u, v, k)
+        bike_time[e] = compute_edgedependent_bike_time(data, shared_lane_factor=shared_lane_factor)
+        car_time[e] = compute_penalized_car_time(data)
+    nx.set_edge_attributes(G_lane, bike_time, name="bike_time")
+    nx.set_edge_attributes(G_lane, car_time, name="car_time")
+
+    # compute betweenness and bike travel time
+    if sp_method == "all_pairs":
+        betweenness = nx.edge_betweenness_centrality(G_lane, weight="bike_time")
+    elif sp_method == "od":
+        betweenness, bike_travel_time = od_betweenness_and_splength(
+            G_lane, od_matrix, "bike_time", weight_od_flow=weight_od_flow
+        )
+    else:
+        raise NotImplementedError("only all_pairs or od allowed for sp_metho")
+
+    pareto_df = []
+    edges_removed = 0
+    while not np.all(np.array(list(is_car_edge.values()))):
+        # sort betweenens centrality (use highest centrality if bike_time, so reverse)
+        sorted_by_betweenness = sorted(betweenness.items(), key=lambda x: x[1])
+        for s in sorted_by_betweenness:
+            if not is_car_edge[s[0]]:
+                edge_to_transform = s[0]
+                break
+        edges_removed += 1
+        G_lane.edges[edge_to_transform]["lanetype"] = "M"
+        G_lane.edges[edge_to_transform]["car_time"] = compute_car_time(G_lane.edges[edge_to_transform])
+        # increase bike_time
+        G_lane.edges[edge_to_transform]["bike_time"] *= shared_lane_factor
+        is_car_edge[edge_to_transform] = True
+
+        # compute new travel times
+        betweenness, car_travel_time, bike_travel_time = compute_betweenness_and_splength(
+            G_lane, "bike_time", od_matrix=od_matrix, sp_method=sp_method, weight_od_flow=weight_od_flow
+        )
+        pareto_df.append(
+            {
+                "bike_edges_added": nr_edges - edges_removed,
+                "bike_edges": nr_edges - edges_removed,
+                "car_edges": edges_removed,
+                "bike_time": bike_travel_time,
+                "car_time": car_travel_time,
+            }
+        )
+        print(pareto_df[-1])
+    return pd.DataFrame(pareto_df)

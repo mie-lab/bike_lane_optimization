@@ -6,7 +6,7 @@ from ebike_city_tools.optimize.utils import make_fake_od, output_to_dataframe, f
 from ebike_city_tools.optimize.linear_program import define_IP
 from ebike_city_tools.utils import lane_to_street_graph, extend_od_circular, output_lane_graph, filter_by_attribute
 from ebike_city_tools.optimize.round_simple import pareto_frontier, rounding_and_splitting
-from ebike_city_tools.iterative_algorithms import betweenness_pareto
+from ebike_city_tools.iterative_algorithms import betweenness_pareto, topdown_betweenness_pareto
 from ebike_city_tools.optimize.wrapper import adapt_edge_attributes
 import numpy as np
 import geopandas as gpd
@@ -107,7 +107,6 @@ def generate_motorized_lane_graph(
 
 
 if __name__ == "__main__":
-    np.random.seed(1)
     parser = argparse.ArgumentParser()
     parser.add_argument("-d", "--data_path", default="../street_network_data/zollikerberg", type=str)
     parser.add_argument("-o", "--out_path", default="outputs", type=str)
@@ -128,6 +127,8 @@ if __name__ == "__main__":
     WEIGHT_OD_FLOW = False
     os.makedirs(OUT_PATH, exist_ok=True)
 
+    # for s in range(1, 10): # to run with different random seeds
+    np.random.seed(42)
     # generate lane graph with snman
     G_lane = generate_motorized_lane_graph(
         os.path.join(path, "edges_all_attributes.gpkg"), os.path.join(path, "nodes_all_attributes.gpkg")
@@ -156,8 +157,22 @@ if __name__ == "__main__":
     if args.run_betweenness:
         print("Running betweenness algorithm for pareto frontier...")
         # run betweenness centrality algorithm for comparison
+        pareto_between = topdown_betweenness_pareto(
+            G_lane.copy(),
+            sp_method=SP_METHOD,
+            od_matrix=od,
+            weight_od_flow=WEIGHT_OD_FLOW,
+        )
+        pareto_between.to_csv(
+            os.path.join(OUT_PATH, f"real_pareto_betweenness{out_path_ending}_topdown.csv"), index=False
+        )
+        # run betweenness centrality algorithm for comparison
         pareto_between = betweenness_pareto(
-            G_lane.copy(), sp_method=SP_METHOD, od_matrix=od, weight_od_flow=WEIGHT_OD_FLOW, betweenness_attr="car_time"
+            G_lane.copy(),
+            sp_method=SP_METHOD,
+            od_matrix=od,
+            weight_od_flow=WEIGHT_OD_FLOW,
+            betweenness_attr="car_time",
         )
         pareto_between.to_csv(
             os.path.join(OUT_PATH, f"real_pareto_betweenness{out_path_ending}_cartime.csv"), index=False
