@@ -302,14 +302,8 @@ def betweenness_pareto(
         # if it can be removed, we transform the travel times
         # transform to bike lane -> update bike and car time
         edges_removed += 1
-        G_lane.edges[edge_to_transform]["lanetype"] = "P"
-        G_lane.edges[edge_to_transform]["car_time"] = np.inf
-        new_bike_time = compute_edgedependent_bike_time(
-            G_lane.edges[edge_to_transform], shared_lane_factor=shared_lane_factor
-        )
-        # debugging:
-        # assert new_bike_time == G_lane.edges[edge_to_transform]["bike_time"] / shared_lane_factor
-        G_lane.edges[edge_to_transform]["bike_time"] = new_bike_time
+        new_edge = transform_car_to_bike_edge(G_lane, edge_to_transform, shared_lane_factor)
+        is_bike_or_fixed[new_edge] = True
 
         # compute new travel times
         betweenness, car_travel_time, bike_travel_time = compute_betweenness_and_splength(
@@ -326,6 +320,29 @@ def betweenness_pareto(
         )
         print(pareto_df[-1])
     return pd.DataFrame(pareto_df)
+
+
+def transform_car_to_bike_edge(G_lane, edge_to_transform, shared_lane_factor):
+    # transform the edge into a bike lane
+    G_lane.edges[edge_to_transform]["lanetype"] = "P"
+    G_lane.edges[edge_to_transform]["car_time"] = np.inf
+    # debugging: -> todo delete
+    new_bike_time = compute_edgedependent_bike_time(
+        G_lane.edges[edge_to_transform], shared_lane_factor=shared_lane_factor
+    )
+    assert new_bike_time == G_lane.edges[edge_to_transform]["bike_time"] / shared_lane_factor
+    G_lane.edges[edge_to_transform]["bike_time"] = G_lane.edges[edge_to_transform]["bike_time"] / shared_lane_factor
+
+    # insert helper edge in the opposite direction - same distance etc
+    new_edge_attrs = G_lane.edges[edge_to_transform].copy()
+    # change gradient direction
+    new_edge_attrs["gradient"] = -new_edge_attrs["gradient"]
+    # compute new bike time based on new gradient
+    new_edge_attrs["bike_time"] = compute_edgedependent_bike_time(new_edge_attrs, shared_lane_factor=shared_lane_factor)
+    # se tnew edge_key
+    new_edge = (edge_to_transform[1], edge_to_transform[0], f"{edge_to_transform[1]}-{edge_to_transform[0]}-revbike")
+    G_lane.add_edge(*new_edge, **new_edge_attrs)
+    return new_edge
 
 
 def optimized_betweenness(lane_graph_inp, nr_iters=1000):

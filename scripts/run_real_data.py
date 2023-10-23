@@ -157,13 +157,17 @@ if __name__ == "__main__":
         print("Running betweenness algorithm for pareto frontier...")
         # run betweenness centrality algorithm for comparison
         pareto_between = betweenness_pareto(
-            G_lane, sp_method=SP_METHOD, od_matrix=od, weight_od_flow=WEIGHT_OD_FLOW, betweenness_attr="car_time"
+            G_lane.copy(), sp_method=SP_METHOD, od_matrix=od, weight_od_flow=WEIGHT_OD_FLOW, betweenness_attr="car_time"
         )
         pareto_between.to_csv(
             os.path.join(OUT_PATH, f"real_pareto_betweenness{out_path_ending}_cartime.csv"), index=False
         )
         pareto_between = betweenness_pareto(
-            G_lane, sp_method=SP_METHOD, od_matrix=od, weight_od_flow=WEIGHT_OD_FLOW, betweenness_attr="bike_time"
+            G_lane.copy(),
+            sp_method=SP_METHOD,
+            od_matrix=od,
+            weight_od_flow=WEIGHT_OD_FLOW,
+            betweenness_attr="bike_time",
         )
         pareto_between.to_csv(
             os.path.join(OUT_PATH, f"real_pareto_betweenness{out_path_ending}_biketime.csv"), index=False
