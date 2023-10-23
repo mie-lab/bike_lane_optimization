@@ -93,3 +93,21 @@ def compute_travel_times(
         "bike_time": bike_travel_time,
         "car_time": car_travel_time,
     }
+
+
+def hypervolume_indicator(data, ref_point=None):
+    """Compute the hypervolume indicator (area with respect to a reference point) for a 2D pareto frontier"""
+    if ref_point is None:
+        ref_point = np.array(np.min(data, axis=0))
+    last_ref_point = ref_point.copy()
+    hypervolume = 0
+    for i in range(len(data)):
+        # make sure that the ordering is correct
+        assert data[i, 0] >= last_ref_point[0]
+        rectangle_sides = data[i] - last_ref_point
+        # volume = area = side * side
+        volume = rectangle_sides[0] * rectangle_sides[1]
+        hypervolume += volume
+        # set new ref point
+        last_ref_point = np.array([data[i, 0], last_ref_point[1]])
+    return hypervolume
