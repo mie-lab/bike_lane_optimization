@@ -2,10 +2,10 @@ import time
 import os
 import argparse
 import pandas as pd
-from ebike_city_tools.optimize.utils import make_fake_od, output_to_dataframe, flow_to_df
+from ebike_city_tools.optimize.utils import output_to_dataframe, combine_pareto_frontiers
 from ebike_city_tools.optimize.linear_program import define_IP
-from ebike_city_tools.utils import lane_to_street_graph, extend_od_circular, output_lane_graph, filter_by_attribute
-from ebike_city_tools.optimize.round_simple import pareto_frontier, rounding_and_splitting
+from ebike_city_tools.utils import lane_to_street_graph, extend_od_circular
+from ebike_city_tools.optimize.round_simple import graph_from_integer_solution, compute_travel_times, pareto_frontier
 from ebike_city_tools.iterative_algorithms import betweenness_pareto, topdown_betweenness_pareto
 from ebike_city_tools.optimize.wrapper import adapt_edge_attributes
 import numpy as np
@@ -177,7 +177,8 @@ if __name__ == "__main__":
     G_street = lane_to_street_graph(G_lane)
 
     # tune the car_weight
-    for car_weight in range(1, 16):
+    integer_solutions = []
+    for car_weight in [0.1, 0.25, 0.5, 0.75] + list(np.arange(1, 10)):
         print(f"Running LP for pareto frontier (car weight={car_weight})...")
         tic = time.time()
         ip = define_IP(
@@ -199,10 +200,27 @@ if __name__ == "__main__":
 
         # nx.write_gpickle(G, "outputs/real_G.gpickle")
         capacity_values = output_to_dataframe(ip, G_street)
-        # capacity_values.to_csv(os.path.join(out_path, "real_capacities.csv"), index=False)
+        # capacity_values.to_csv(os.path.join(out_path, f"real_capacities_{car_weight}.csv"), index=False)
+
+        # if all values are integer by chance, add to integer solutions (but they should already be contained in pareto)
+        if np.all(
+            capacity_values[["u_b(e)", "u_c(e)"]].values == capacity_values[["u_b(e)", "u_c(e)"]].values.astype(int)
+        ):
+            print("All solutions are integer - store integer solution")
+            bike_G, car_G = graph_from_integer_solution(capacity_values.copy())
+            int_res_dict = compute_travel_times(
+                G_lane.copy(),
+                bike_G,
+                car_G,
+                od_matrix=od,
+                sp_method=sp_method,
+                shared_lane_factor=shared_lane_factor,
+                weight_od_flow=WEIGHT_OD_FLOW,
+            )
+            int_res_dict["car_weight"] = car_weight
+            integer_solutions.append(int_res_dict)
+
         del ip
-        # flow_df = flow_to_df(ip, list(G_street.edges))
-        # flow_df.to_csv(os.path.join(out_path, "real_flow_solution.csv"), index=False)
 
         # compute the paretor frontier
         tic = time.time()
@@ -216,3 +234,11 @@ if __name__ == "__main__":
         )
         print("Time pareto", time.time() - tic)
         pareto_df.to_csv(os.path.join(out_path, f"real_pareto_optimize{out_path_ending}_{car_weight}.csv"), index=False)
+
+    # store integer solutions
+    integer_solutions = pd.DataFrame(integer_solutions)
+    integer_solutions.to_csv(os.path.join(out_path, f"real_pareto_optimize{out_path_ending}_integer.csv"), index=False)
+
+    # combine all pareto frontiers
+    combined_pareto = combine_pareto_frontiers(out_path)
+    combined_pareto.to_csv(os.path.join(out_path, f"real_pareto_combined_optimize{out_path_ending}.csv"), index=False)
