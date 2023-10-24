@@ -71,14 +71,17 @@ def define_IP(
         od_flow = od_df[["s", "t"]].values
 
     # if desired, we weight the terms in the objective function by the flow in the OD matrix
-    if weight_od_flow and od_df is not None:
+    if weight_od_flow:
+        assert od_df is not None, "if weight_od_flow=True, an OD matrix must be provided!"
         od_weighting = od_df["trips_per_day"].values
-    else:
+    elif od_df is not None:
         # don't weight by the flow, but still keep the values for auxiliary OD-pairs at zero
         od_weighting = (od_df["trips_per_day"].values > 0).astype(int)
         # prevent them from being all zero
         if np.all(od_weighting == 0):
             od_weighting = np.ones(len(od_weighting))
+    else:
+        od_weighting = np.ones(len(od_flow))
 
     print(f"Number of flow variables: {len(od_flow) * m} ({m} edges and {len(od_flow)} OD pairs)")
 

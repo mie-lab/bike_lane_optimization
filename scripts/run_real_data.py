@@ -15,6 +15,7 @@ from snman import distribution, street_graph, graph_utils, io, merge_edges, lane
 from snman.constants import *
 
 FLOW_CONSTANT = 1  # how much flow to send through a path
+WEIGHT_OD_FLOW = False
 algorithm_dict = {
     "betweenness_topdown": (topdown_betweenness_pareto, {}),
     "betweenness_cartime": (betweenness_pareto, {"betweenness_attr": "car_time"}),
@@ -132,13 +133,12 @@ if __name__ == "__main__":
 
     path = args.data_path
     shared_lane_factor = args.penalty_shared  # how much to penalize biking on car lanes
-    OUT_PATH = args.out_path
-    SP_METHOD = args.sp_method
-    ALGORITHM = args.algorithm
-    assert ALGORITHM in ["optimize", "betweenness_topdown", "betweenness_cartime", "betweenness_biketime"]
-    out_path_ending = "_od" if SP_METHOD == "od" else ""
-    WEIGHT_OD_FLOW = False
-    os.makedirs(OUT_PATH, exist_ok=True)
+    out_path = args.out_path
+    sp_method = args.sp_method
+    algorithm = args.algorithm
+    assert algorithm in ["optimize", "betweenness_topdown", "betweenness_cartime", "betweenness_biketime"]
+    out_path_ending = "_od" if sp_method == "od" else ""
+    os.makedirs(out_path, exist_ok=True)
 
     np.random.seed(42)  # random seed for extending the od matrix
     # generate lane graph with snman
@@ -154,72 +154,65 @@ if __name__ == "__main__":
     node_list = list(G_lane.nodes())
     od = od[(od["s"].isin(node_list)) & (od["t"].isin(node_list))]
 
-    # extend OD matrix because otherwise we get disconnected car graph
-    od = extend_od_circular(od, node_list)
-
-    # # making a subgraph only disconnects the graoh
-    # nodes = nodes.sample(200)
-    # edges = edges[edges["u"].isin(nodes.index)]
-    # edges = edges[edges["v"].isin(nodes.index)]
-    # od = od[od["s"].isin(nodes.index)]
-    # od = od[od["t"].isin(nodes.index)]
-
     assert nx.is_strongly_connected(G_lane), "G not connected"
 
-    if "betweenness" in ALGORITHM:
-        print(f"Running betweenness algorithm {ALGORITHM}")
+    if "betweenness" in algorithm:
+        print(f"Running betweenness algorithm {algorithm}")
         # get algorithm method
-        algorithm_func, kwargs = algorithm_dict[ALGORITHM]
+        algorithm_func, kwargs = algorithm_dict[algorithm]
 
         # run betweenness centrality algorithm for comparison
         pareto_between = algorithm_func(
-            G_lane.copy(), sp_method=SP_METHOD, od_matrix=od, weight_od_flow=WEIGHT_OD_FLOW, **kwargs
+            G_lane.copy(), sp_method=sp_method, od_matrix=od, weight_od_flow=WEIGHT_OD_FLOW, **kwargs
         )
-        pareto_between.to_csv(os.path.join(OUT_PATH, f"real_pareto_{ALGORITHM}{out_path_ending}.csv"), index=False)
+        pareto_between.to_csv(os.path.join(out_path, f"real_pareto_{algorithm}{out_path_ending}.csv"), index=False)
         exit()
 
-    # other option: Algorithm argumant is "optimize"
+    # from here on, algorithm is "optimize"
+    assert algorithm == "optimize"
+
+    # extend OD matrix because otherwise we get disconnected car graph
+    od = extend_od_circular(od, node_list)
 
     G_street = lane_to_street_graph(G_lane)
 
-    # # the car_weight is an important factor to vary
-    # for car_weight in range(15):
-    car_weight = 3
-    print(f"Running LP for pareto frontier (car weight={car_weight})...")
-    tic = time.time()
-    ip = define_IP(
-        G_street,
-        cap_factor=1,
-        od_df=od,
-        bike_flow_constant=FLOW_CONSTANT,
-        car_flow_constant=FLOW_CONSTANT,
-        shared_lane_factor=shared_lane_factor,
-        weight_od_flow=WEIGHT_OD_FLOW,
-        car_weight=car_weight,
-    )
-    toc = time.time()
-    print("Finish init", toc - tic)
-    ip.optimize()
-    toc2 = time.time()
-    print("Finish optimization", toc2 - toc)
-    print("OPT VALUE", ip.objective_value)
+    # tune the car_weight
+    for car_weight in [3]:  # range(1, 16):
+        print(f"Running LP for pareto frontier (car weight={car_weight})...")
+        tic = time.time()
+        ip = define_IP(
+            G_street,
+            cap_factor=1,
+            od_df=od,
+            bike_flow_constant=FLOW_CONSTANT,
+            car_flow_constant=FLOW_CONSTANT,
+            shared_lane_factor=shared_lane_factor,
+            weight_od_flow=WEIGHT_OD_FLOW,
+            car_weight=car_weight,
+        )
+        toc = time.time()
+        print("Finish init", toc - tic)
+        ip.optimize()
+        toc2 = time.time()
+        print("Finish optimization", toc2 - toc)
+        print("OPT VALUE", ip.objective_value)
 
-    # nx.write_gpickle(G, "outputs/real_G.gpickle")
-    capacity_values = output_to_dataframe(ip, G_street)
-    # capacity_values.to_csv(os.path.join(OUT_PATH, "real_capacities.csv"), index=False)
-    del ip
-    # flow_df = flow_to_df(ip, list(G_street.edges))
-    # flow_df.to_csv(os.path.join(OUT_PATH, "real_flow_solution.csv"), index=False)
+        # nx.write_gpickle(G, "outputs/real_G.gpickle")
+        capacity_values = output_to_dataframe(ip, G_street)
+        # capacity_values.to_csv(os.path.join(out_path, "real_capacities.csv"), index=False)
+        del ip
+        # flow_df = flow_to_df(ip, list(G_street.edges))
+        # flow_df.to_csv(os.path.join(out_path, "real_flow_solution.csv"), index=False)
 
-    # compute the paretor frontier
-    tic = time.time()
-    pareto_df = pareto_frontier(
-        G_lane,
-        capacity_values,
-        shared_lane_factor=shared_lane_factor,
-        sp_method=SP_METHOD,
-        od_matrix=od,
-        weight_od_flow=WEIGHT_OD_FLOW,
-    )
-    print("Time pareto", time.time() - tic)
-    pareto_df.to_csv(os.path.join(OUT_PATH, f"real_pareto_optimize{out_path_ending}_{car_weight}.csv"), index=False)
+        # compute the paretor frontier
+        tic = time.time()
+        pareto_df = pareto_frontier(
+            G_lane,
+            capacity_values,
+            shared_lane_factor=shared_lane_factor,
+            sp_method=sp_method,
+            od_matrix=od,
+            weight_od_flow=WEIGHT_OD_FLOW,
+        )
+        print("Time pareto", time.time() - tic)
+        pareto_df.to_csv(os.path.join(out_path, f"real_pareto_optimize{out_path_ending}_{car_weight}.csv"), index=False)
