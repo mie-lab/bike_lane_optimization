@@ -177,7 +177,7 @@ if __name__ == "__main__":
     G_street = lane_to_street_graph(G_lane)
 
     # tune the car_weight
-    for car_weight in [3]:  # range(1, 16):
+    for car_weight in range(1, 16):
         print(f"Running LP for pareto frontier (car weight={car_weight})...")
         tic = time.time()
         ip = define_IP(
