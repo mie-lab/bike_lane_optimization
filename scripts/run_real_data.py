@@ -15,6 +15,11 @@ from snman import distribution, street_graph, graph_utils, io, merge_edges, lane
 from snman.constants import *
 
 FLOW_CONSTANT = 1  # how much flow to send through a path
+algorithm_dict = {
+    "betweenness_topdown": (topdown_betweenness_pareto, {}),
+    "betweenness_cartime": (betweenness_pareto, {"betweenness_attr": "car_time"}),
+    "betweenness_biketime": (betweenness_pareto, {"betweenness_attr": "bike_time"}),
+}
 
 
 def deprecated_table_to_graph(
@@ -110,12 +115,18 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("-d", "--data_path", default="../street_network_data/zollikerberg", type=str)
     parser.add_argument("-o", "--out_path", default="outputs", type=str)
-    parser.add_argument("-b", "--run_betweenness", action="store_true")
     parser.add_argument(
         "-p", "--penalty_shared", default=2, type=int, help="penalty factor for driving on a car lane by bike"
     )
     parser.add_argument(
         "-s", "--sp_method", default="od", type=str, help="Compute the shortest path either 'all_pairs' or 'od'"
+    )
+    parser.add_argument(
+        "-a",
+        "--algorithm",
+        type=str,
+        default="optimize",
+        help="One of optimize, betweenness_topdown, betweenness_cartime, betweenness_biketime",
     )
     args = parser.parse_args()
 
@@ -123,12 +134,13 @@ if __name__ == "__main__":
     shared_lane_factor = args.penalty_shared  # how much to penalize biking on car lanes
     OUT_PATH = args.out_path
     SP_METHOD = args.sp_method
+    ALGORITHM = args.algorithm
+    assert ALGORITHM in ["optimize", "betweenness_topdown", "betweenness_cartime", "betweenness_biketime"]
     out_path_ending = "_od" if SP_METHOD == "od" else ""
     WEIGHT_OD_FLOW = False
     os.makedirs(OUT_PATH, exist_ok=True)
 
-    # for s in range(1, 10): # to run with different random seeds
-    np.random.seed(42)
+    np.random.seed(42)  # random seed for extending the od matrix
     # generate lane graph with snman
     G_lane = generate_motorized_lane_graph(
         os.path.join(path, "edges_all_attributes.gpkg"), os.path.join(path, "nodes_all_attributes.gpkg")
@@ -154,43 +166,26 @@ if __name__ == "__main__":
 
     assert nx.is_strongly_connected(G_lane), "G not connected"
 
-    if args.run_betweenness:
-        print("Running betweenness algorithm for pareto frontier...")
+    if "betweenness" in ALGORITHM:
+        print(f"Running betweenness algorithm {ALGORITHM}")
+        # get algorithm method
+        algorithm_func, kwargs = algorithm_dict[ALGORITHM]
+
         # run betweenness centrality algorithm for comparison
-        pareto_between = topdown_betweenness_pareto(
-            G_lane.copy(),
-            sp_method=SP_METHOD,
-            od_matrix=od,
-            weight_od_flow=WEIGHT_OD_FLOW,
+        pareto_between = algorithm_func(
+            G_lane.copy(), sp_method=SP_METHOD, od_matrix=od, weight_od_flow=WEIGHT_OD_FLOW, **kwargs
         )
-        pareto_between.to_csv(
-            os.path.join(OUT_PATH, f"real_pareto_betweenness{out_path_ending}_topdown.csv"), index=False
-        )
-        # run betweenness centrality algorithm for comparison
-        pareto_between = betweenness_pareto(
-            G_lane.copy(),
-            sp_method=SP_METHOD,
-            od_matrix=od,
-            weight_od_flow=WEIGHT_OD_FLOW,
-            betweenness_attr="car_time",
-        )
-        pareto_between.to_csv(
-            os.path.join(OUT_PATH, f"real_pareto_betweenness{out_path_ending}_cartime.csv"), index=False
-        )
-        pareto_between = betweenness_pareto(
-            G_lane.copy(),
-            sp_method=SP_METHOD,
-            od_matrix=od,
-            weight_od_flow=WEIGHT_OD_FLOW,
-            betweenness_attr="bike_time",
-        )
-        pareto_between.to_csv(
-            os.path.join(OUT_PATH, f"real_pareto_betweenness{out_path_ending}_biketime.csv"), index=False
-        )
+        pareto_between.to_csv(os.path.join(OUT_PATH, f"real_pareto_{ALGORITHM}{out_path_ending}.csv"), index=False)
+        exit()
+
+    # other option: Algorithm argumant is "optimize"
 
     G_street = lane_to_street_graph(G_lane)
 
-    print("Running LP for pareto frontier...")
+    # # the car_weight is an important factor to vary
+    # for car_weight in range(15):
+    car_weight = 3
+    print(f"Running LP for pareto frontier (car weight={car_weight})...")
     tic = time.time()
     ip = define_IP(
         G_street,
@@ -200,6 +195,7 @@ if __name__ == "__main__":
         car_flow_constant=FLOW_CONSTANT,
         shared_lane_factor=shared_lane_factor,
         weight_od_flow=WEIGHT_OD_FLOW,
+        car_weight=car_weight,
     )
     toc = time.time()
     print("Finish init", toc - tic)
@@ -210,7 +206,7 @@ if __name__ == "__main__":
 
     # nx.write_gpickle(G, "outputs/real_G.gpickle")
     capacity_values = output_to_dataframe(ip, G_street)
-    capacity_values.to_csv(os.path.join(OUT_PATH, "real_u_solution.csv"), index=False)
+    # capacity_values.to_csv(os.path.join(OUT_PATH, "real_capacities.csv"), index=False)
     del ip
     # flow_df = flow_to_df(ip, list(G_street.edges))
     # flow_df.to_csv(os.path.join(OUT_PATH, "real_flow_solution.csv"), index=False)
@@ -226,4 +222,4 @@ if __name__ == "__main__":
         weight_od_flow=WEIGHT_OD_FLOW,
     )
     print("Time pareto", time.time() - tic)
-    pareto_df.to_csv(os.path.join(OUT_PATH, f"real_pareto_df{out_path_ending}.csv"), index=False)
+    pareto_df.to_csv(os.path.join(OUT_PATH, f"real_pareto_optimize{out_path_ending}_{car_weight}.csv"), index=False)
