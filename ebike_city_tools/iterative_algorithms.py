@@ -200,6 +200,7 @@ def od_betweenness_and_splength(G_lane, od_matrix, attr, weight_od_flow=False):
                     min_key = key
                     min_val = key_dict[attr]
             if min_val == np.inf:
+                # min_key = key  # uncomment to allow infinite SP
                 raise RuntimeError("inf should not appear on SP")
             # print(shortest_path[i], shortest_path[i + 1], first_key)
             edge = (shortest_path[i], shortest_path[i + 1], min_key)

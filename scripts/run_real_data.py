@@ -154,6 +154,10 @@ if __name__ == "__main__":
     node_list = list(G_lane.nodes())
     od = od[(od["s"].isin(node_list)) & (od["t"].isin(node_list))]
 
+    # # Code to output instance properties
+    # print(args.data_path.split(os.sep)[-1], ",", G_lane.number_of_nodes(), ",", G_lane.number_of_edges(), ",", len(od))
+    # exit()
+
     assert nx.is_strongly_connected(G_lane), "G not connected"
 
     if "betweenness" in algorithm:

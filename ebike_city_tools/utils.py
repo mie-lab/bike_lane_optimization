@@ -228,6 +228,7 @@ def compute_penalized_car_time(attr_dict: dict, bike_lane_speed: int = 10) -> in
     if attr_dict["lanetype"] == "M":
         return 60 * attr_dict["distance"] / attr_dict["speed_limit"]
     elif attr_dict["lanetype"] == "P":
+        # return np.inf  # uncomment to test top-down approach with infinite paths
         return 60 * attr_dict["distance"] / bike_lane_speed  # assume speed limit on bike priority lanes
     else:
         raise RuntimeError("lanetyp other than M and P not implemented")
