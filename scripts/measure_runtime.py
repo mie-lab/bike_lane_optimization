@@ -5,24 +5,31 @@ import pandas as pd
 
 from ebike_city_tools.optimize.linear_program import define_IP
 from ebike_city_tools.optimize.utils import make_fake_od
-from ebike_city_tools.utils import lane_to_street_graph
+from ebike_city_tools.utils import lane_to_street_graph, extend_od_circular
 from ebike_city_tools.random_graph import random_lane_graph
 
 OUT_PATH = "outputs"
 os.makedirs(OUT_PATH, exist_ok=True)
-NR_ITERS = 5
+NR_ITERS = 1
+
+np.random.seed(1)
 
 if __name__ == "__main__":
     res_df = []
     # test for graphs with 30-100 nodes
-    for size in np.arange(30, 110, 10):
+    for size in np.arange(100, 200, 10):
         G_lane = random_lane_graph(size)
         G = lane_to_street_graph(G_lane)
         # test for graphs with OD matrix of 2 times, 3 times, or 4 times as many entries as the number of nodes
-        for od_factor in [2, 3, 4]:
+        od_size_list = (np.random.rand(2) * 800 + 200).astype(int)
+        for od_size in od_size_list:
+            if 3 * od_size * G.number_of_edges() > 3000000 or od_size > size**2:
+                continue
+
             # test for several iterations because randomized
             for i in range(NR_ITERS):
-                od = make_fake_od(size, od_factor * size, nodes=G.nodes)
+                od = make_fake_od(int(size), od_size, nodes=G.nodes)
+                od = extend_od_circular(od, list(G.nodes()))
 
                 tic = time.time()
                 new_ip = define_IP(G, cap_factor=1, od_df=od)
