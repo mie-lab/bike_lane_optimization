@@ -9,6 +9,7 @@ def define_IP(
     G,
     edges_bike_list=None,
     edges_car_list=None,
+    fixed_edges=pd.DataFrame(),
     fixed_values=pd.DataFrame(),
     cap_factor=1,
     only_double_bikelanes=True,
@@ -50,9 +51,19 @@ def define_IP(
 
     # edge list where at least one of the capacities (bike or car) has not been fixed
     edge_list = list(G.edges)
+    print(edge_list)
+    print(fixed_edges.shape)
+    fixed_edge_list = []
+    if fixed_edges.shape[1] > 0 :
+        print(fixed_edges)
+        fixed_edges = fixed_edges.reset_index()
+        fixed_edge_list = fixed_edges['Edge'].values.tolist()
+        print("Fixed Edges")
+        print(fixed_edge_list)
+
     if edges_bike_list is None:
-        edges_bike_list = edge_list
-        edges_car_list = edge_list  # TODO: remove if we change the rounding algorithm
+        edges_bike_list = list(set(edge_list) - set(fixed_edge_list))
+        edges_car_list = edges_bike_list  # TODO: remove if we change the rounding algorithm
     edges_car_bike_list = list(set(edges_bike_list) | set(edges_car_list))
 
     node_list = list(G.nodes)
@@ -102,19 +113,19 @@ def define_IP(
     # flow variables
 
     var_f_car = [
-        [streetIP.add_var(name=f"f_{s},{t},{e},c", lb=0, var_type=var_type) for e in range(number_edges)] for (s, t) in od_flow
+        [streetIP.add_var(name=f"f_{s},{t},{e},c", lb=0, var_type=var_type) for e in edge_list] for (s, t) in od_flow
     ]
     var_f_bike = [
-        [streetIP.add_var(name=f"f_{s},{t},{e},b", lb=0, var_type=var_type) for e in range(number_edges)] for (s, t) in od_flow
+        [streetIP.add_var(name=f"f_{s},{t},{e},b", lb=0, var_type=var_type) for e in edge_list] for (s, t) in od_flow
     ]
     if shared_lane_variables:
         # if allowing for shared lane usage between cars and bike, set additional variables
         var_f_shared = [
-            [streetIP.add_var(name=f"f_{s},{t},{e},s", lb=0, var_type=var_type) for e in range(number_edges)] for (s, t) in od_flow
+            [streetIP.add_var(name=f"f_{s},{t},{e},s", lb=0, var_type=var_type) for e in edge_list] for (s, t) in od_flow
         ]
     # capacity variables
-    cap_bike = [streetIP.add_var(name=f"u_{e},b", lb=0, var_type=var_type) for e in range(b)]
-    cap_car = [streetIP.add_var(name=f"u_{e},c", lb=0, var_type=var_type) for e in range(c)]
+    cap_bike = [streetIP.add_var(name=f"u_{e},b", lb=0, var_type=var_type) for e in edges_bike_list]
+    cap_car = [streetIP.add_var(name=f"u_{e},c", lb=0, var_type=var_type) for e in edges_car_list]
 
     # functions to call the variables
     def f_car(od_ind, e):
@@ -127,16 +138,20 @@ def define_IP(
         return var_f_shared[od_ind][edge_list.index(e)]
 
     def u_b(e):
-        if e in edges_bike_list:
-            return cap_bike[edges_bike_list.index(e)]
+        if e in fixed_edge_list:
+            row = fixed_edges.loc[fixed_edges['Edge'] == e]
+            u_b = row['u_b(e)'].values[0]
+            return u_b
         else:
-            return fixed_values.loc[edge_list.index(e), "u_b(e)"]
+            return cap_bike[edges_bike_list.index(e)]
 
     def u_c(e):
-        if e in edges_car_list:
-            return cap_car[edges_car_list.index(e)]
+        if e in fixed_edge_list:
+            row = fixed_edges.loc[fixed_edges['Edge'] == e]
+            u_c = row['u_c(e)'].values[0]
+            return u_c
         else:
-            return fixed_values.loc[edge_list.index(e), "u_c(e)"]
+            return cap_car[edges_car_list.index(e)]
 
     for v in node_list:
         for od_ind, (s, t) in enumerate(od_flow):

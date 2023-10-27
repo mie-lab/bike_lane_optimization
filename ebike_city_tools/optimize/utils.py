@@ -3,7 +3,7 @@ import networkx as nx
 import numpy as np
 
 
-def output_to_dataframe(streetIP, G):
+def output_to_dataframe(streetIP, G, fixed_edges = pd.DataFrame()):
     # Does not output a dataframe if mathematical program ⁄infeasible
     # if opt_val == None:
     #     print("LP infeasible")
@@ -15,10 +15,15 @@ def output_to_dataframe(streetIP, G):
     # Creates the output dataframe
     # if fixed_values.empty:
     edge_cap = []
+    def retrieve_u_for_fixed_edge(edge, column) :
+        row = fixed_edges.loc[fixed_edges['Edge'] == edge]
+        u = row[column].values[0]
+        return u
+
     for i, e in enumerate(G.edges):
-        opt_cap_car = streetIP.vars[f"u_{i},c"].x
+        opt_cap_car = streetIP.vars[f"u_{e},c"].x if not streetIP.vars[f"u_{e},c"] is None else retrieve_u_for_fixed_edge(e, 'u_c(e)')
         # cap_car[list(G.edges).index(e)].x   # Gets optimal capacity value for car
-        opt_cap_bike = streetIP.vars[f"u_{i},b"].x
+        opt_cap_bike = streetIP.vars[f"u_{e},b"].x if not streetIP.vars[f"u_{e},b"] is None else retrieve_u_for_fixed_edge(e, 'u_b(e)')
         # cap_bike[list(G.edges).index(e)].x # Gets optimal capacity value for bike
         edge_cap.append([e, opt_cap_bike, opt_cap_car, capacities[e]])
     dataframe_edge_cap = pd.DataFrame(data=edge_cap)
@@ -36,9 +41,10 @@ def flow_to_df(streetIP, edge_list):
     var_values = []
     for m in streetIP.vars:
         if m.name.startswith("f_"):
-            (s, t, e_index, edgetype) = m.name[2:].split(",")
-            edge = edge_list[int(e_index)]
-            var_values.append([m.name, s, t, edge[0], edge[1], edgetype, m.x])
+            (s, t, edge_u, edge_v, edgetype) = m.name[2:].split(",")
+            edge_u = int(edge_u[1:])
+            edge_v = int(edge_v.split(")")[0][1:])
+            var_values.append([m.name, s, t, edge_u, edge_v, edgetype, m.x])
     dataframe = pd.DataFrame(var_values, columns=["name", "s", "t", "edge_u", "edge_v", "var_type", "flow"])
     return dataframe
 

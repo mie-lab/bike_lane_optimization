@@ -32,6 +32,17 @@ def result_to_streets(result_df_in):
     assert len(together) == 0.5 * len(result_df)
     return together
 
+def undirected_to_directed(undirected_df):
+    """Helper function that transforms a df containing undirected information on the arcs, 
+    i.e. a row per pair of reverse arcs, to a df containing a row per arc."""
+
+    correct_arcs = undirected_df.copy().loc[:,['u_b(e)', 'u_c(e)', 'capacity']]
+    reverse_arcs = undirected_df.loc[:, ['u_b(e)', 'u_c(e)_reversed', 'capacity']].reset_index()
+    
+    reverse_arcs['Edge'] = reverse_arcs['Edge'].apply(lambda x : (x[1],x[0]))
+    reverse_arcs = reverse_arcs.set_index('Edge').rename(columns={'u_c(e)_reversed': 'u_c(e)'})
+    return pd.concat([correct_arcs, reverse_arcs])
+                                              
 
 def edge_to_source_target(df):
     """Transforms on column called 'Edge' of a dataframe to two columns [source, target]"""

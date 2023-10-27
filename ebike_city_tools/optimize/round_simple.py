@@ -1,6 +1,7 @@
 import networkx as nx
 import pandas as pd
 import numpy as np
+from ebike_city_tools.optimize.rounding_utils import build_car_network_from_df
 
 from ebike_city_tools.utils import output_lane_graph
 from ebike_city_tools.metrics import od_sp
@@ -42,21 +43,9 @@ def ceiled_car_graph(result_df):
     fixed_street_df = pd.concat([fixed_rows, street_df[~row_is_problem]])
     # add source and target columns
     fixed_street_df = edge_to_source_target(fixed_street_df)
-    # transform again into directed edge dataframe
-    uc = fixed_street_df[["u_c(e)", "source", "target"]].rename({"u_c(e)": "number_edges"}, axis=1)
-    uc_reversed = fixed_street_df[["u_c(e)_reversed", "source", "target"]].rename(
-        {"u_c(e)_reversed": "number_edges", "source": "target", "target": "source"}, axis=1
-    )
-    directed_list = pd.concat([uc, uc_reversed]).reset_index(drop=True)
-    # add edge
-    directed_list["Edge"] = directed_list.apply(lambda x: (int(x["source"]), int(x["target"])), axis=1)
-    # get edge keys for nx graph
-    edge_df_for_graph = repeat_and_edgekey(directed_list)
 
     # construct graph
-    G = nx.from_pandas_edgelist(
-        edge_df_for_graph, source="source", target="target", create_using=nx.MultiDiGraph, edge_key="edge_key"
-    )
+    G = build_car_network_from_df(fixed_street_df)   
     return G
 
 
@@ -145,13 +134,16 @@ def rounding_and_splitting(result_df, bike_edges_to_add=None):
     unique_edges.sort_values("u_b(e)", inplace=True, ascending=False)
 
     # print("Start graph edges", bike_G.number_of_edges(), car_G.number_of_edges())
+    
+    remaining_bike_edges_to_add = max([0, bike_edges_to_add - bike_G.number_of_edges()]) if not bike_edges_to_add is None else None
+
 
     bike_G, car_G = iteratively_redistribute_edges(
         car_G,
         bike_G,
         unique_edges,
         stop_ub_zero=True,
-        bike_edges_to_add=max([0, bike_edges_to_add - bike_G.number_of_edges()]),
+        bike_edges_to_add=remaining_bike_edges_to_add
     )
     return bike_G, car_G
 
