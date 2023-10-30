@@ -89,7 +89,7 @@ def make_fake_od(n, nr_routes, nodes=None):
     return od
 
 
-def combine_pareto_frontiers(path, name_scheme="real_pareto_optimize_od"):
+def combine_paretos_from_path(path, name_scheme="real_pareto_optimize_od"):
     """
     Load several pareto frontiers from a path and combine them into one set of non-dominating point
     """
@@ -107,11 +107,16 @@ def combine_pareto_frontiers(path, name_scheme="real_pareto_optimize_od"):
         p = pd.read_csv(fp)
         p["car_weight"] = car_weight
         res_p.append(p)
+    return res_p
 
+
+def combine_pareto_frontiers(res_p):
+    """
+    res_p: list of pareto frontiers
+    """
     # find ref point
-    p_concat = pd.concat(res_p)
-    ref_point = np.min(p_concat[["car_time", "bike_time"]].values, axis=0)
-    print(ref_point)
+    p_concat = pd.concat(res_p).sort_values(["bike_time", "car_time"])
+    ref_point = np.max(p_concat[["car_time", "bike_time"]].values, axis=0)
 
     # find the best curve
     min_hi = np.inf
@@ -131,24 +136,29 @@ def combine_pareto_frontiers(path, name_scheme="real_pareto_optimize_od"):
         tuple(e)
         for e in p_concat[p_concat["car_weight"] == best_carweight]
         .dropna()[["bike_time", "car_time", "bike_edges"]]
+        .drop_duplicates(subset=["bike_time", "car_time"])
         .values
     }
 
     # start with best car weight and check if we should add other points:
     for i, row in p_concat.iterrows():
-        min_bike_time = min([s[0] for s in solution_set])
-        min_car_time = min([s[1] for s in solution_set])
+        # check if any point in the current solution set dominates over the point, if yes, don't add it
+        is_dominated = False
         for s in list(solution_set):
-            if row["bike_time"] < s[0] and row["car_time"] < s[1]:
-                solution_set.remove(s)
-                solution_set.add((row["bike_time"], row["car_time"], row["bike_edges"]))
-            elif row["bike_time"] < min_bike_time:
-                solution_set.add((row["bike_time"], row["car_time"], row["bike_edges"]))
-            elif row["car_time"] < min_car_time:
-                solution_set.add((row["bike_time"], row["car_time"], row["bike_edges"]))
+            if s[0] < row["bike_time"] and s[1] < row["car_time"]:
+                is_dominated = True
+                break
+        if not is_dominated:
+            solution_set.add((row["bike_time"], row["car_time"], row["bike_edges"]))
+
+    # check again if any of the new points dominates any other
+    for s1 in list(solution_set):
+        for s2 in list(solution_set):
+            if s1[0] < s2[0] and s1[1] < s2[1]:
+                solution_set.remove(s2)
 
     # output the result as a dataframe
     combined_pareto = pd.DataFrame(solution_set, columns=["bike_time", "car_time", "bike_edges"]).sort_values(
         "bike_time"
     )
-    return combined_pareto
+    return combined_pareto.drop_duplicates(subset=["bike_time", "car_time"])
