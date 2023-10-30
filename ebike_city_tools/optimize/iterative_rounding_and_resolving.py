@@ -1,10 +1,8 @@
 import math
-import numpy as np
 import pandas as pd
-from pandas.core.construction import com
 
-from ebike_city_tools.optimize.utils import output_to_dataframe, flow_to_df
-from ebike_city_tools.optimize.round_simple import rounding_and_splitting
+from ebike_city_tools.optimize.utils import output_to_dataframe
+from ebike_city_tools.optimize.round_simple import pareto_frontier
 from ebike_city_tools.optimize.rounding_utils import result_to_streets, undirected_to_directed 
 
 def rounding_error(fractional_value):
@@ -25,42 +23,44 @@ def round_row(row):
         row['u_c(e)_reversed'] = math.floor(row['u_c(e)_reversed'])
     return row
 
-def iterative_rounding(result_df, optimizer):
-    FRACTION_TO_ROUND = 0.25
-    NUMBER_ITERATIONS = 2
+def iterative_rounding(optimizer, G_lane, shared_lane_factor,
+                       fraction_of_edges_rounded = 0.5,number_iterations = 5):
 
-    capacity_values = result_df
-    for _ in range(NUMBER_ITERATIONS):
+    pareto_fronts = []
+    directed_fixed_df = pd.DataFrame()
+
+    for _ in range(number_iterations):
+        optimizer.init_lp_with_fixed_edges(directed_fixed_df)
+        optimizer.optimize()
+        print(optimizer.lp.objective_value)
+        if optimizer.lp.objective_value is None :
+            print("LP infeasible after rounding")
+            break
+        capacity_values = output_to_dataframe(optimizer.lp, optimizer.graph, fixed_edges = directed_fixed_df)
+
+        optimizer.fixed_edges = directed_fixed_df  
+        pareto_fronts.append(pareto_frontier(G_lane, capacity_values, shared_lane_factor))
         capacity_values['rounding_error'] = capacity_values.apply(rounding_error_of_row, axis = 1)
 
         combined_df = result_to_streets(capacity_values)
         combined_df['total_rounding_error'] = combined_df['rounding_error'] + combined_df['rounding_error_reversed']
 
-        fractional_df = combined_df[combined_df['total_rounding_error'] > 0.001]
-        integral_df = combined_df[combined_df['total_rounding_error'] <= 0.001]
+        fractional_df = combined_df[combined_df['total_rounding_error'] > 0]
+        integral_df = combined_df[combined_df['total_rounding_error'] == 0]
 
-        number_to_round = int(fractional_df.shape[1]*FRACTION_TO_ROUND)
+        if fractional_df.shape[0] == 0:
+            print("No more entries to round, stopping iterative_rounding")
+            break
+        number_to_round = min(int(fractional_df.shape[0]*fraction_of_edges_rounded),fractional_df.shape[0]-1)
 
         to_round_df = fractional_df.sort_values(by=['total_rounding_error']).take(range(0,number_to_round))
-        print("To round")
-        print(to_round_df)
         rounded_df = to_round_df.apply(round_row, axis = 1)
-        print("Rounded:")
-        print(rounded_df)
 
         fixed_df = pd.concat([rounded_df, integral_df])
-        print(fixed_df)
+        print("Number of fixed Edges: ", fixed_df.shape[0])
 
         directed_fixed_df = undirected_to_directed(fixed_df).reset_index()
-        print(directed_fixed_df)
+        
 
-        optimizer.init_lp_with_fixed_edges(directed_fixed_df )
-        optimizer.optimize()
-        print(optimizer.lp.objective_value)
-        capacity_values = output_to_dataframe(optimizer.lp, optimizer.graph, fixed_edges = directed_fixed_df)
-        print(capacity_values.take(range(10)))
-        # print(result_df.head)
 
-        optimizer.fixed_edges = directed_fixed_df  
-
-    return rounding_and_splitting(capacity_values)
+    return pareto_fronts 

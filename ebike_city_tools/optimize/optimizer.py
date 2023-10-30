@@ -60,7 +60,7 @@ class Optimizer:
         print("Finished optimizing LP", time.time() - tic)
         return self.lp.objective_value
 
-    def postprocess(self, rounding_founction=iterative_rounding):
+    def postprocess(self, rounding_founction=rounding_and_splitting):
         assert self.lp is not None, "LP needs to initialized first, call init_lp"
         assert self.lp.objective_value is not None, "LP did not converged or was not optimized yet"
         # get dataframe
@@ -70,7 +70,7 @@ class Optimizer:
         if self.integer_problem:
             bike_G, car_G = graph_from_integer_solution(capacity_values)
         else:
-            bike_G, car_G = rounding_founction(capacity_values.copy(), self)
+            bike_G, car_G = rounding_founction(capacity_values.copy())
         assert nx.is_strongly_connected(car_G)
         print("Final graph edges", bike_G.number_of_edges(), car_G.number_of_edges())
         return bike_G, car_G

@@ -51,15 +51,14 @@ def define_IP(
 
     # edge list where at least one of the capacities (bike or car) has not been fixed
     edge_list = list(G.edges)
-    print(edge_list)
-    print(fixed_edges.shape)
+    # print(edge_list)
+    # print(fixed_edges.shape)
     fixed_edge_list = []
     if fixed_edges.shape[1] > 0 :
-        print(fixed_edges)
-        fixed_edges = fixed_edges.reset_index()
+        # print(fixed_edges)
         fixed_edge_list = fixed_edges['Edge'].values.tolist()
-        print("Fixed Edges")
-        print(fixed_edge_list)
+        # print("Fixed Edges")
+        # print(fixed_edge_list)
 
     if edges_bike_list is None:
         edges_bike_list = list(set(edge_list) - set(fixed_edge_list))

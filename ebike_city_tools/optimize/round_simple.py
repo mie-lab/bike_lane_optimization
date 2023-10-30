@@ -122,7 +122,7 @@ def iteratively_redistribute_edges(car_G, bike_G, unique_edges, stop_ub_zero=Tru
 
 
 def rounding_and_splitting(result_df, bike_edges_to_add=None):
-    print(result_df.head)
+    # print(result_df.head)
     # Initial car graph is one with all the car capacity values rounded up
     car_G = ceiled_car_graph(result_df.copy())
     assert nx.is_strongly_connected(car_G)
