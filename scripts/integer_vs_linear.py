@@ -5,22 +5,24 @@ import networkx as nx
 import pandas as pd
 from ebike_city_tools.random_graph import random_lane_graph
 from ebike_city_tools.optimize.utils import make_fake_od
+from ebike_city_tools.metrics import compute_travel_times
 from ebike_city_tools.optimize.optimizer import Optimizer
-from ebike_city_tools.utils import output_lane_graph, lane_to_street_graph, extend_od_circular
-from ebike_city_tools.metrics import sp_length
+from ebike_city_tools.utils import lane_to_street_graph, extend_od_circular
 from ebike_city_tools.optimize.round_simple import ceiled_car_graph, pareto_frontier, graph_from_integer_solution
 
 OUT_PATH = "outputs"
 os.makedirs(OUT_PATH, exist_ok=True)
 NR_ITERS = 5
 shared_lane_factor = 2
+SP_METHOD = "od"
+WEIGHT_OD_FLOW = False
 
 if __name__ == "__main__":
     np.random.seed(20)
     res_df = []
     for i in range(NR_ITERS):
         # test different number of nodes
-        for size in np.arange(30, 50, 10):
+        for size in np.arange(40, 70, 10):
             G_lane = random_lane_graph(size)
             G = lane_to_street_graph(G_lane)
             # test for graphs with OD matrix of 2 times, 3 times, or 4 times as many entries as the number of nodes
@@ -30,7 +32,7 @@ if __name__ == "__main__":
                 od = extend_od_circular(od, list(G_lane.nodes()))
 
                 # run for several car weights to get a pareto frontier also for the integer problem
-                for car_weight in [0.1, 0.5, 1, 2, 5, 10]:
+                for car_weight in [0.1, 0.5, 0.75, 1, 2, 3, 4, 5, 10]:
                     for integer_problem, name in zip([True, False], ["integer", "linear"]):
                         optim = Optimizer(
                             graph=G.copy(),
@@ -38,8 +40,7 @@ if __name__ == "__main__":
                             integer_problem=integer_problem,
                             shared_lane_factor=shared_lane_factor,  # factor how much worse it is to bike on a car lane
                             car_weight=car_weight,
-                            weight_od_flow=False,
-                            # here we don't want to weight by OD flow because we evaluate all pairs SP lengths
+                            weight_od_flow=WEIGHT_OD_FLOW,
                         )
                         tic = time.time()
                         optim.init_lp()
@@ -56,20 +57,27 @@ if __name__ == "__main__":
                         # transform the graph layout into travel times, including gradient and penalty factor for using
                         if integer_problem:
                             bike_G, car_G = graph_from_integer_solution(capacity_values)
-                            # car lanes by bike
-                            G_lane_new = output_lane_graph(G_lane, bike_G, car_G, shared_lane_factor)
-                            # measure weighted times (floyd-warshall)
-                            bike_travel_time = sp_length(G_lane_new, attr="biketime")
-                            car_travel_time = sp_length(G_lane_new, attr="cartime")
-                            res_dict_list = [{"bike_time": bike_travel_time, "car_time": car_travel_time}]
+                            res_dict_list = [
+                                compute_travel_times(
+                                    G_lane,
+                                    bike_G,
+                                    car_G,
+                                    od_matrix=od,
+                                    sp_method=SP_METHOD,
+                                    shared_lane_factor=shared_lane_factor,
+                                    weight_od_flow=WEIGHT_OD_FLOW,
+                                )
+                            ]
                         else:
                             # for linear, we have to compute the paretor frontier
                             res_dict_list = pareto_frontier(
                                 G_lane,
                                 capacity_values,
+                                od_matrix=od,
                                 shared_lane_factor=shared_lane_factor,
-                                sp_method="all_pairs",
+                                sp_method=SP_METHOD,
                                 return_list=True,
+                                weight_od_flow=WEIGHT_OD_FLOW,
                             )
                         # add general infos to integer or linear (pareto) solution
                         for r in res_dict_list:
