@@ -91,9 +91,8 @@ def generate_motorized_lane_graph(
 ):
     G = io.load_street_graph(edge_path, node_path)  # initialize lanes after rebuild
     # need to save the maxspeed attribute here to use it later
-    maxspeed = nx.get_edge_attributes(G, "maxspeed")
     nx.set_edge_attributes(G, nx.get_edge_attributes(G, source_lanes_attribute), target_lanes_attribute)
-    # ensure consistent edge directions
+    # ensure consistent edge directions (only from lower to higher node!)
     street_graph.organize_edge_directions(G)
 
     distribution.set_given_lanes(G)
@@ -223,6 +222,14 @@ if __name__ == "__main__":
             )
             int_res_dict["car_weight"] = car_weight
             integer_solutions.append(int_res_dict)
+
+            # # Code to output the graph
+            # from ebike_city_tools.utils import output_lane_graph
+            # G_lane_output = output_lane_graph(G_lane, bike_G, car_G, shared_lane_factor)
+            # edge_df = nx.to_pandas_edgelist(G_lane_output, edge_key="edge_key")
+            # edge_df.to_csv("outputs/edge_df_example.csv", index=False)
+            # del ip
+            # exit()
 
         del ip
 
