@@ -3,9 +3,7 @@ import time
 import matplotlib.pyplot as plt
 import numpy as np
 from ebike_city_tools.optimize.optimizer import Optimizer
-from ebike_city_tools.optimize.utils import output_to_dataframe, flow_to_df
-from ebike_city_tools.random_graph import random_lane_graph
-from ebike_city_tools.optimize.utils import make_fake_od
+from ebike_city_tools.random_graph import random_lane_graph, make_fake_od
 from ebike_city_tools.optimize.round_simple import pareto_frontier
 from ebike_city_tools.utils import lane_to_street_graph
 

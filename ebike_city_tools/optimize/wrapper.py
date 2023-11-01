@@ -1,7 +1,7 @@
 import networkx as nx
 import pandas as pd
 
-from ebike_city_tools.optimize.utils import make_fake_od, output_to_dataframe, flow_to_df
+from ebike_city_tools.optimize.utils import output_to_dataframe, flow_to_df
 from ebike_city_tools.optimize.linear_program import define_IP
 from ebike_city_tools.utils import lane_to_street_graph, extend_od_circular, output_lane_graph, filter_by_attribute
 from ebike_city_tools.optimize.round_simple import pareto_frontier, rounding_and_splitting
