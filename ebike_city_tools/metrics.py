@@ -55,23 +55,6 @@ def od_sp(G, od, weight, weight_od_flow=False):
     return np.mean(sp)
 
 
-# def centrality_metrics(G):
-#     metric_dict = {}
-#     metric_dict["closeness"] = np.mean(list(nx.closeness_centrality(G).values()))
-#     # metric_dict["betweenness"] = np.mean(list(nx.betweenness_centrality(G).values()))
-#     return metric_dict
-
-# def centrality_undirected(G):
-#     metric_dict = {}
-#     metric_dict["current_flow_closeness"] = np.mean(
-#         list(nx.current_flow_closeness_centrality(G, weight="weight").values())
-#     )
-#     metric_dict["current_flow_betweenness"] = np.mean(
-#         list(nx.current_flow_betweenness_centrality(G, weight="weight").values())
-#     )
-#     return metric_dict
-
-
 def compute_travel_times(
     G_lane, bike_G, car_G, od_matrix=None, sp_method="all_pairs", shared_lane_factor=2, weight_od_flow=False
 ):

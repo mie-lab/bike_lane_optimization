@@ -2,7 +2,7 @@ import math
 import pandas as pd
 
 from ebike_city_tools.optimize.linear_program import define_IP
-from ebike_city_tools.optimize.utils import output_to_dataframe
+ebike_city_tools.utils import output_to_dataframe
 
 
 def round_iteratively(G):

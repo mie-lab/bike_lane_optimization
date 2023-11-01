@@ -1,7 +1,186 @@
+import os
 import networkx as nx
 import numpy as np
 import pandas as pd
 from collections import defaultdict
+from ebike_city_tools.metrics import hypervolume_indicator
+
+
+def output_to_dataframe(streetIP, G: nx.DiGraph, fixed_edges: pd.DataFrame = pd.DataFrame()) -> pd.DataFrame:
+    """
+    Convert the solution of the LP / IP into a dataframe with the optimal capacities
+    Arguments:
+        streetIP: mip.Model
+        G: nx.DiGraph, street graph (same as used for the LP)
+        fixed_edges: dataframe with fixed capacities that were not optimized
+    Returns:
+        capacities: pd.DataFrame with columns ("Edge", "u_b(e)", "u_c(e)", "capacity")
+    """
+    # Does not output a dataframe if mathematical program ⁄infeasible
+    assert streetIP.objective_value is not None
+
+    capacities = nx.get_edge_attributes(G, "capacity")
+
+    # Creates the output dataframe
+    # if fixed_values.empty:
+    edge_cap = []
+
+    def retrieve_u_for_fixed_edge(edge, column):
+        row = fixed_edges.loc[fixed_edges["Edge"] == edge]
+        u = row[column].values[0]
+        return u
+
+    for i, e in enumerate(G.edges):
+        opt_cap_car = (
+            streetIP.vars[f"u_{e},c"].x
+            if not streetIP.vars[f"u_{e},c"] is None
+            else retrieve_u_for_fixed_edge(e, "u_c(e)")
+        )
+        opt_cap_bike = (
+            streetIP.vars[f"u_{e},b"].x
+            if not streetIP.vars[f"u_{e},b"] is None
+            else retrieve_u_for_fixed_edge(e, "u_b(e)")
+        )
+        edge_cap.append([e, opt_cap_bike, opt_cap_car, capacities[e]])
+    dataframe_edge_cap = pd.DataFrame(data=edge_cap)
+    dataframe_edge_cap.columns = ["Edge", "u_b(e)", "u_c(e)", "capacity"]
+    return dataframe_edge_cap
+
+
+def flow_to_df(streetIP):
+    """
+    Output all optimized flow variables in a dataframe
+    Arguments:
+        streetIP: mip.Model
+    Returns:
+        flow_df: pd.DataFrame with optimal flow for each (s, t, e, lanetype) combination
+    """
+    var_values = []
+    for m in streetIP.vars:
+        if m.name.startswith("f_"):
+            (s, t, edge_u, edge_v, edgetype) = m.name[2:].split(",")
+            edge_u = int(edge_u[1:])
+            edge_v = int(edge_v.split(")")[0][1:])
+            var_values.append([m.name, s, t, edge_u, edge_v, edgetype, m.x])
+    flow_df = pd.DataFrame(var_values, columns=["name", "s", "t", "edge_u", "edge_v", "var_type", "flow"])
+    return flow_df
+
+
+def result_to_streets(capacity_df):
+    """
+    Convert a capacity dataframe with one row per lane into a dataframe with one row per street
+    Arguments:
+        capacity_df: pd.DataFrame with columns ("Edge", "u_b(e)", "u_c(e)", "capacity")
+    Returns:
+        street_capacity_df: pd.DataFrame with columns ("Edge", "u_b(e)", "u_c(e)", "u_c(e)_reversed", "capacity")
+    """
+    # if edge column is a string, we need to apply eval to convert it into a tuple
+    if type(capacity_df.iloc[0]["Edge"]) == str:
+        capacity_df["Edge"] = capacity_df["Edge"].apply(eval)
+    capacity_df["source<target"] = capacity_df["Edge"].apply(lambda x: x[0] < x[1])
+    capacity_df.set_index("Edge", inplace=True)
+    # make new representation with all in one line
+    reversed_edges = capacity_df[~capacity_df["source<target"]].reset_index()
+    reversed_edges["Edge"] = reversed_edges["Edge"].apply(lambda x: (x[1], x[0]))
+    together = pd.merge(
+        capacity_df[capacity_df["source<target"]],
+        reversed_edges,
+        how="outer",
+        left_index=True,
+        right_on="Edge",
+        suffixes=("", "_reversed"),
+    ).set_index("Edge")
+    assert all(together["capacity"] == together["capacity_reversed"])
+    assert all(together["u_b(e)"] == together["u_b(e)_reversed"])
+    assert all(together["source<target"] != together["source<target_reversed"])
+    together.drop(
+        ["capacity_reversed", "u_b(e)_reversed", "source<target_reversed", "source<target"], axis=1, inplace=True
+    )
+    assert len(together) == 0.5 * len(capacity_df)
+    return together
+
+
+def combine_paretos_from_path(path: str, name_scheme: str = "real_pareto_optimize_od") -> list:
+    """
+    Load several pareto frontiers from a path and combine them into one set of non-dominating point
+    Arguments:
+        path: str
+    Returns:
+        res_p: list of pd.DataFrame object, where each dataframe is one pareto frontiers
+    """
+    # read all files
+    res_p = []
+    for f in os.listdir(path):
+        if name_scheme not in f:
+            continue
+        elif "integer" in f:
+            p = pd.read_csv(os.path.join(path, f))
+            res_p.append(p)
+            continue
+        car_weight = float(f.split("_")[-1][:-4])
+        fp = os.path.join(path, f)
+        p = pd.read_csv(fp)
+        p["car_weight"] = car_weight
+        res_p.append(p)
+    return res_p
+
+
+def combine_pareto_frontiers(res_p: list) -> pd.DataFrame:
+    """
+    Combine several pareto frontiers into one set of all non-dominating solutions
+    Arguments:
+        res_p: list of pd.DataFrame object, where each dataframe is one pareto frontiers
+    Returns:
+        combined_pareto: pd.DataFrame, dataframe with columns ["bike_time", "car_time", "bike_edges"]
+    """
+    # find ref point
+    p_concat = pd.concat(res_p).sort_values(["bike_time", "car_time"])
+    ref_point = np.max(p_concat[["car_time", "bike_time"]].values, axis=0)
+
+    # find the best curve
+    min_hi = np.inf
+    best_carweight = 0
+    for p in res_p:
+        if p["car_weight"].nunique() > 1:
+            continue
+        hi = hypervolume_indicator(p[["car_time", "bike_time"]].values, ref_point=ref_point)  # np.array([1, 2]))
+        #     print(car_weight)
+        #     print(p["car_weight"].unique()[0], round(hi, 3))
+        if hi < min_hi:
+            min_hi = hi
+            best_carweight = p["car_weight"].unique()[0]
+
+    # start with the set of solutions
+    solution_set = {
+        tuple(e)
+        for e in p_concat[p_concat["car_weight"] == best_carweight]
+        .dropna()[["bike_time", "car_time", "bike_edges"]]
+        .drop_duplicates(subset=["bike_time", "car_time"])
+        .values
+    }
+
+    # start with best car weight and check if we should add other points:
+    for i, row in p_concat.iterrows():
+        # check if any point in the current solution set dominates over the point, if yes, don't add it
+        is_dominated = False
+        for s in list(solution_set):
+            if s[0] < row["bike_time"] and s[1] < row["car_time"]:
+                is_dominated = True
+                break
+        if not is_dominated:
+            solution_set.add((row["bike_time"], row["car_time"], row["bike_edges"]))
+
+    # check again if any of the new points dominates any other
+    for s1 in list(solution_set):
+        for s2 in list(solution_set):
+            if s1[0] < s2[0] and s1[1] < s2[1]:
+                solution_set.remove(s2)
+
+    # output the result as a dataframe
+    combined_pareto = pd.DataFrame(solution_set, columns=["bike_time", "car_time", "bike_edges"]).sort_values(
+        "bike_time"
+    )
+    return combined_pareto.drop_duplicates(subset=["bike_time", "car_time"])
 
 
 def lossless_to_undirected(graph):

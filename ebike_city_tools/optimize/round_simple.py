@@ -3,9 +3,9 @@ import pandas as pd
 import numpy as np
 from ebike_city_tools.optimize.rounding_utils import build_car_network_from_df
 
-from ebike_city_tools.utils import output_lane_graph
-from ebike_city_tools.metrics import od_sp
+from ebike_city_tools.metrics import compute_travel_times
 from ebike_city_tools.optimize.rounding_utils import *
+
 
 def ceiled_car_graph_simple(result_df):
     """
@@ -44,7 +44,7 @@ def ceiled_car_graph(result_df):
     fixed_street_df = edge_to_source_target(fixed_street_df)
 
     # construct graph
-    G = build_car_network_from_df(fixed_street_df)   
+    G = build_car_network_from_df(fixed_street_df)
     return G
 
 
@@ -133,16 +133,13 @@ def rounding_and_splitting(result_df, bike_edges_to_add=None):
     unique_edges.sort_values("u_b(e)", inplace=True, ascending=False)
 
     # print("Start graph edges", bike_G.number_of_edges(), car_G.number_of_edges())
-    
-    remaining_bike_edges_to_add = max([0, bike_edges_to_add - bike_G.number_of_edges()]) if not bike_edges_to_add is None else None
 
+    remaining_bike_edges_to_add = (
+        max([0, bike_edges_to_add - bike_G.number_of_edges()]) if not bike_edges_to_add is None else None
+    )
 
     bike_G, car_G = iteratively_redistribute_edges(
-        car_G,
-        bike_G,
-        unique_edges,
-        stop_ub_zero=True,
-        bike_edges_to_add=remaining_bike_edges_to_add
+        car_G, bike_G, unique_edges, stop_ub_zero=True, bike_edges_to_add=remaining_bike_edges_to_add
     )
     return bike_G, car_G
 

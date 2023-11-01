@@ -1,7 +1,7 @@
 import math
 import pandas as pd
 
-from ebike_city_tools.optimize.utils import output_to_dataframe
+ebike_city_tools.utils import output_to_dataframe
 from ebike_city_tools.optimize.round_simple import pareto_frontier
 from ebike_city_tools.optimize.rounding_utils import result_to_streets, undirected_to_directed 
 
