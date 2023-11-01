@@ -1,10 +1,13 @@
 import os
+import pandas as pd
 import time
 import networkx as nx
 from ebike_city_tools.utils import lane_to_street_graph
 from ebike_city_tools.optimize.utils import output_to_dataframe, flow_to_df
 from ebike_city_tools.optimize.linear_program import define_IP
 from ebike_city_tools.optimize.round_simple import rounding_and_splitting, graph_from_integer_solution
+from ebike_city_tools.optimize.iterative_rounding_and_resolving import iterative_rounding
+from ebike_city_tools.optimize.randomized_rounding import randomized_rounding
 
 
 class Optimizer:
@@ -21,6 +24,7 @@ class Optimizer:
         self.od_matrix = od_matrix
         self.integer_problem = integer_problem
         self.lp = None
+        self.fixed_edges = pd.DataFrame()
         self.optimizer_args = kwargs
 
     def init_lp(self):
@@ -33,6 +37,21 @@ class Optimizer:
             **self.optimizer_args
         )
         print("Initialized LP", time.time() - tic)
+
+    def init_lp_with_fixed_edges(self, edge_df):
+        #Auxiliary function that fixes the values for a set of edges
+        tic = time.time()
+        self.lp = define_IP(
+            self.graph,
+            fixed_edges = edge_df,
+            od_df=self.od_matrix,
+            shared_lane_factor=self.shared_lane_factor,
+            integer_problem=self.integer_problem,
+            **self.optimizer_args
+        )
+        print("Initialized LP with fixed edges", time.time() - tic)
+        
+
 
     def optimize(self):
         assert self.lp is not None, "LP needs to initialized first, call init_lp"
@@ -57,7 +76,7 @@ class Optimizer:
         return bike_G, car_G
 
     def get_solution(self, return_flow=False):
-        dataframe_edge_cap = output_to_dataframe(self.lp, self.graph)
+        dataframe_edge_cap = output_to_dataframe(self.lp, self.graph, self.fixed_edges)
         if return_flow:
             flow_df = flow_to_df(self.lp, list(self.graph.edges))
             return dataframe_edge_cap, flow_df
