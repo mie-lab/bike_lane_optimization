@@ -16,7 +16,12 @@ import numpy as np
 import geopandas as gpd
 import networkx as nx
 from snman import distribution, street_graph, graph_utils, io, merge_edges, lane_graph
-from snman.constants import *
+from snman.constants import (
+    KEY_LANES_DESCRIPTION,
+    KEY_LANES_DESCRIPTION_AFTER,
+    MODE_PRIVATE_CARS,
+    KEY_GIVEN_LANES_DESCRIPTION,
+)
 
 FLOW_CONSTANT = 1  # how much flow to send through a path
 WEIGHT_OD_FLOW = False

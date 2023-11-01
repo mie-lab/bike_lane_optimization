@@ -27,7 +27,7 @@ class ParetoRoundOptimize:
         self.sp_method = sp_method
         self.optimize_every_x = optimize_every_x
         self.optimize_kwargs = kwargs
-        self.shared_lane_factor = self.optimize_kwargs.get("self.optimize_kwargs", 2)
+        self.shared_lane_factor = self.optimize_kwargs.get("shared_lane_factor", 2)
 
         # transform to street graph
         self.G_street = lane_to_street_graph(G_lane)
@@ -50,7 +50,6 @@ class ParetoRoundOptimize:
         Returns:
             pareto_frontier: pd.DataFrame with columns ["bike_time", car_time", "bike_edges", "car_edges"]
         """
-        np.random.seed(42)
         G_lane = self.G_lane.copy()
         od_matrix = self.od
         sp_method = self.sp_method
@@ -168,4 +167,3 @@ class ParetoRoundOptimize:
             )
             print(pareto_df[-1])
         return pd.DataFrame(pareto_df)
-
