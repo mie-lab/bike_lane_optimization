@@ -3,6 +3,7 @@ outputs/
 .vscode
 outputs_prev/
 figures/
+backup_scripts/
 scripts/compare_algorithms.py
 
 # Byte-compiled / optimized / DLL files

@@ -2,9 +2,13 @@ import time
 import os
 import argparse
 import pandas as pd
-from ebike_city_tools.optimize.utils import output_to_dataframe, combine_pareto_frontiers
 from ebike_city_tools.optimize.linear_program import define_IP
-from ebike_city_tools.utils import lane_to_street_graph, extend_od_circular
+from ebike_city_tools.utils import (
+    lane_to_street_graph,
+    extend_od_circular,
+    output_to_dataframe,
+)
+from ebike_city_tools.optimize.rounding_utils import combine_pareto_frontiers
 from ebike_city_tools.optimize.round_simple import graph_from_integer_solution, compute_travel_times, pareto_frontier
 from ebike_city_tools.iterative_algorithms import betweenness_pareto, topdown_betweenness_pareto
 from ebike_city_tools.optimize.wrapper import adapt_edge_attributes

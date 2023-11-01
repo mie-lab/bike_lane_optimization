@@ -36,17 +36,21 @@ class ParetoRoundOptimize:
         """
         Returns: newly optimized capacities
         """
-        ip = define_IP(self.G_street, od_df=self.od, fixed_values=fixed_capacities, **self.optimize_kwargs)
+        ip = define_IP(self.G_street, od_df=self.od, fixed_edges=fixed_capacities, **self.optimize_kwargs)
         ip.verbose = False
         ip.optimize()
-        return output_to_dataframe(ip, self.G_street)
+        return output_to_dataframe(ip, self.G_street, fixed_edges=fixed_capacities)
 
-    def pareto(self):
+    def pareto(self) -> pd.DataFrame:
         """
-        Arguments:
-            betweenness_attr: String, if car_time, we remove edges with the minimum car_time betweenness centralityk if bike_time, we
-                remove edges with the highest bike_time betwenness centrality
+        Computes the pareto frontier of bike and car travel times by rounding in batches
+        This algorithm optimizes the capacity every x bike edges. Then, we iterate through the sorted bike capacities,
+        and, if 1) the edge is not fixed yet, 2) transforming the edge into a bike lane doesn't disconnect the graph,
+        the edge is allocated as a bike lane
+        Returns:
+            pareto_frontier: pd.DataFrame with columns ["bike_time", car_time", "bike_edges", "car_edges"]
         """
+        np.random.seed(42)
         G_lane = self.G_lane.copy()
         od_matrix = self.od
         sp_method = self.sp_method
@@ -78,7 +82,6 @@ class ParetoRoundOptimize:
         pareto_df = []
 
         edges_removed = 0
-        # max_iters = car_graph.number_of_edges() * 10
         # iteratively add edges
         found_edge = True
 
@@ -166,11 +169,3 @@ class ParetoRoundOptimize:
             print(pareto_df[-1])
         return pd.DataFrame(pareto_df)
 
-
-if __name__ == "__main__":
-    from ebike_city_tools.random_graph import random_lane_graph, make_fake_od
-
-    G_lane = random_lane_graph(30)
-    od = make_fake_od(30, 90, nodes=G_lane.nodes)
-    opt = ParetoRoundOptimize(G_lane, od)
-    pareto_front = opt.pareto()

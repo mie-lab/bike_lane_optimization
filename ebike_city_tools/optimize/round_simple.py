@@ -4,23 +4,7 @@ import numpy as np
 from ebike_city_tools.optimize.rounding_utils import build_car_network_from_df
 
 from ebike_city_tools.metrics import compute_travel_times
-from ebike_city_tools.optimize.rounding_utils import *
-
-
-def ceiled_car_graph_simple(result_df):
-    """
-    Deprecated! - did not consider special case where car lanes can increase over the capacity
-    Initial car graph is one with all the car capacity values rounded up
-    """
-    df = result_df.copy()
-    df = edge_to_source_target(df)
-    # round the number of car edges for now
-    df["number_edges"] = np.ceil(df["u_c(e)"])
-    # get edge key:
-    df = repeat_and_edgekey(df)
-    # construct graph
-    G = nx.from_pandas_edgelist(df, source="source", target="target", create_using=nx.MultiDiGraph, edge_key="edge_key")
-    return G
+from ebike_city_tools.optimize.rounding_utils import result_to_streets, edge_to_source_target, repeat_and_edgekey
 
 
 def ceiled_car_graph(result_df):
@@ -135,7 +119,7 @@ def rounding_and_splitting(result_df, bike_edges_to_add=None):
     # print("Start graph edges", bike_G.number_of_edges(), car_G.number_of_edges())
 
     remaining_bike_edges_to_add = (
-        max([0, bike_edges_to_add - bike_G.number_of_edges()]) if not bike_edges_to_add is None else None
+        max([0, bike_edges_to_add - bike_G.number_of_edges()]) if bike_edges_to_add is not None else None
     )
 
     bike_G, car_G = iteratively_redistribute_edges(
