@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from ebike_city_tools.optimize.iterative_rounding_and_resolving import iterative_rounding
 from ebike_city_tools.optimize.optimizer import Optimizer
-from ebike_city_tools.random_graph import random_lane_graph, make_fake_od
+from ebike_city_tools.synthetic import random_lane_graph, make_fake_od
 from ebike_city_tools.optimize.round_simple import pareto_frontier
 from ebike_city_tools.utils import lane_to_street_graph
 

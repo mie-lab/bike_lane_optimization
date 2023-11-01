@@ -4,9 +4,9 @@ import time
 import pandas as pd
 
 from ebike_city_tools.optimize.linear_program import define_IP
-from ebike_city_tools.random_graph import make_fake_od
+from ebike_city_tools.synthetic import make_fake_od
 from ebike_city_tools.utils import lane_to_street_graph, extend_od_circular
-from ebike_city_tools.random_graph import random_lane_graph
+from ebike_city_tools.synthetic import random_lane_graph
 
 OUT_PATH = "outputs"
 os.makedirs(OUT_PATH, exist_ok=True)

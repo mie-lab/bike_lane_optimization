@@ -1,4 +1,4 @@
-from ebike_city_tools.random_graph import random_lane_graph, make_fake_od
+from ebike_city_tools.synthetic import random_lane_graph, make_fake_od
 from ebike_city_tools.optimize.round_optimized import ParetoRoundOptimize
 
 if __name__ == "__main__":

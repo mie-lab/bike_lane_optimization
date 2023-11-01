@@ -130,7 +130,7 @@ class StreetNetworkEnv:
 
 
 if __name__ == "__main__":
-    from random_graph import base_graph_doppelspur
+    from synthetic import base_graph_doppelspur
     import matplotlib.pyplot as plt
 
     base_graph = base_graph_doppelspur(20)
