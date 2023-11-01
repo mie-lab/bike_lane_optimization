@@ -7,7 +7,6 @@ from ebike_city_tools.utils import output_lane_graph
 from ebike_city_tools.metrics import od_sp
 from ebike_city_tools.optimize.rounding_utils import *
 
-
 def ceiled_car_graph_simple(result_df):
     """
     Deprecated! - did not consider special case where car lanes can increase over the capacity
@@ -186,7 +185,6 @@ def pareto_frontier(
     Round with different cutoffs and thereby compute pareto frontier
     capacity_values: pd.DataFrame
     sp_method: str, one of {all_pairs, od} - compute the all pairs shortest paths or only on the OD matrix
-    TODO: could be made more efficient by not starting from scratch in every redistribution
     """
     assert sp_method != "od" or od_matrix is not None
     G_lane = G_original.copy()
@@ -224,28 +222,19 @@ def pareto_frontier(
             break
         num_bike_edges = bike_G.number_of_edges()
 
-        # transform the graph layout into travel times, including gradient and penalty factor for using
-        # car lanes by bike
-        G_lane_new = output_lane_graph(G_lane, bike_G, car_G, shared_lane_factor)
-
-        # measure weighted times (floyd-warshall)
-        if sp_method == "od":
-            bike_travel_time = od_sp(G_lane_new, od_matrix, weight="biketime", weight_od_flow=weight_od_flow)
-            car_travel_time = od_sp(G_lane_new, od_matrix, weight="cartime", weight_od_flow=weight_od_flow)
-        elif sp_method == "all_pairs":
-            bike_travel_time = np.mean(pd.DataFrame(nx.floyd_warshall(G_lane_new, weight="biketime")).values)
-            car_travel_time = np.mean(pd.DataFrame(nx.floyd_warshall(G_lane_new, weight="cartime")).values)
-        else:
-            raise ValueError("Wrong sp method, must be all_pairs or od")
-        pareto_df.append(
-            {
-                "bike_edges_added": bike_edges_to_add,
-                "bike_edges": bike_G.number_of_edges(),
-                "car_edges": car_G.number_of_edges(),
-                "bike_time": bike_travel_time,
-                "car_time": car_travel_time,
-            }
+        # Compute travel times
+        travel_time_dict = compute_travel_times(
+            G_lane,
+            bike_G,
+            car_G,
+            od_matrix=od_matrix,
+            sp_method=sp_method,
+            shared_lane_factor=shared_lane_factor,
+            weight_od_flow=weight_od_flow,
         )
+        travel_time_dict["bike_edges_added"] = bike_edges_to_add
+        pareto_df.append(travel_time_dict)
+
     if return_list:
         return pareto_df
     return pd.DataFrame(pareto_df)

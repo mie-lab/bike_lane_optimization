@@ -2,11 +2,11 @@ import time
 import os
 import argparse
 import pandas as pd
-from ebike_city_tools.optimize.utils import make_fake_od, output_to_dataframe, flow_to_df
+from ebike_city_tools.optimize.utils import output_to_dataframe, combine_pareto_frontiers
 from ebike_city_tools.optimize.linear_program import define_IP
-from ebike_city_tools.utils import lane_to_street_graph, extend_od_circular, output_lane_graph, filter_by_attribute
-from ebike_city_tools.optimize.round_simple import pareto_frontier, rounding_and_splitting
-from ebike_city_tools.iterative_algorithms import betweenness_pareto
+from ebike_city_tools.utils import lane_to_street_graph, extend_od_circular
+from ebike_city_tools.optimize.round_simple import graph_from_integer_solution, compute_travel_times, pareto_frontier
+from ebike_city_tools.iterative_algorithms import betweenness_pareto, topdown_betweenness_pareto
 from ebike_city_tools.optimize.wrapper import adapt_edge_attributes
 import numpy as np
 import geopandas as gpd
@@ -15,6 +15,12 @@ from snman import distribution, street_graph, graph_utils, io, merge_edges, lane
 from snman.constants import *
 
 FLOW_CONSTANT = 1  # how much flow to send through a path
+WEIGHT_OD_FLOW = False
+algorithm_dict = {
+    "betweenness_topdown": (topdown_betweenness_pareto, {}),
+    "betweenness_cartime": (betweenness_pareto, {"betweenness_attr": "car_time"}),
+    "betweenness_biketime": (betweenness_pareto, {"betweenness_attr": "bike_time"}),
+}
 
 
 def deprecated_table_to_graph(
@@ -85,9 +91,8 @@ def generate_motorized_lane_graph(
 ):
     G = io.load_street_graph(edge_path, node_path)  # initialize lanes after rebuild
     # need to save the maxspeed attribute here to use it later
-    maxspeed = nx.get_edge_attributes(G, "maxspeed")
     nx.set_edge_attributes(G, nx.get_edge_attributes(G, source_lanes_attribute), target_lanes_attribute)
-    # ensure consistent edge directions
+    # ensure consistent edge directions (only from lower to higher node!)
     street_graph.organize_edge_directions(G)
 
     distribution.set_given_lanes(G)
@@ -107,27 +112,34 @@ def generate_motorized_lane_graph(
 
 
 if __name__ == "__main__":
-    np.random.seed(1)
     parser = argparse.ArgumentParser()
     parser.add_argument("-d", "--data_path", default="../street_network_data/zollikerberg", type=str)
     parser.add_argument("-o", "--out_path", default="outputs", type=str)
-    parser.add_argument("-b", "--run_betweenness", action="store_true")
     parser.add_argument(
         "-p", "--penalty_shared", default=2, type=int, help="penalty factor for driving on a car lane by bike"
     )
     parser.add_argument(
         "-s", "--sp_method", default="od", type=str, help="Compute the shortest path either 'all_pairs' or 'od'"
     )
+    parser.add_argument(
+        "-a",
+        "--algorithm",
+        type=str,
+        default="optimize",
+        help="One of optimize, betweenness_topdown, betweenness_cartime, betweenness_biketime",
+    )
     args = parser.parse_args()
 
     path = args.data_path
     shared_lane_factor = args.penalty_shared  # how much to penalize biking on car lanes
-    OUT_PATH = args.out_path
-    SP_METHOD = args.sp_method
-    out_path_ending = "_od" if SP_METHOD == "od" else ""
-    WEIGHT_OD_FLOW = False
-    os.makedirs(OUT_PATH, exist_ok=True)
+    out_path = args.out_path
+    sp_method = args.sp_method
+    algorithm = args.algorithm
+    assert algorithm in ["optimize", "betweenness_topdown", "betweenness_cartime", "betweenness_biketime"]
+    out_path_ending = "_od" if sp_method == "od" else ""
+    os.makedirs(out_path, exist_ok=True)
 
+    np.random.seed(42)  # random seed for extending the od matrix
     # generate lane graph with snman
     G_lane = generate_motorized_lane_graph(
         os.path.join(path, "edges_all_attributes.gpkg"), os.path.join(path, "nodes_all_attributes.gpkg")
@@ -141,60 +153,103 @@ if __name__ == "__main__":
     node_list = list(G_lane.nodes())
     od = od[(od["s"].isin(node_list)) & (od["t"].isin(node_list))]
 
-    # extend OD matrix because otherwise we get disconnected car graph
-    od = extend_od_circular(od, node_list)
-
-    # # making a subgraph only disconnects the graoh
-    # nodes = nodes.sample(200)
-    # edges = edges[edges["u"].isin(nodes.index)]
-    # edges = edges[edges["v"].isin(nodes.index)]
-    # od = od[od["s"].isin(nodes.index)]
-    # od = od[od["t"].isin(nodes.index)]
+    # # Code to output instance properties
+    # print(args.data_path.split(os.sep)[-1], ",", G_lane.number_of_nodes(), ",", G_lane.number_of_edges(), ",", len(od))
+    # exit()
 
     assert nx.is_strongly_connected(G_lane), "G not connected"
 
-    if args.run_betweenness:
-        print("Running betweenness algorithm for pareto frontier...")
+    if "betweenness" in algorithm:
+        print(f"Running betweenness algorithm {algorithm}")
+        # get algorithm method
+        algorithm_func, kwargs = algorithm_dict[algorithm]
+
         # run betweenness centrality algorithm for comparison
-        pareto_between = betweenness_pareto(G_lane, sp_method=SP_METHOD, od_matrix=od, weight_od_flow=WEIGHT_OD_FLOW)
-        pareto_between.to_csv(os.path.join(OUT_PATH, f"real_pareto_betweenness{out_path_ending}.csv"), index=False)
+        pareto_between = algorithm_func(
+            G_lane.copy(), sp_method=sp_method, od_matrix=od, weight_od_flow=WEIGHT_OD_FLOW, **kwargs
+        )
+        pareto_between.to_csv(os.path.join(out_path, f"real_pareto_{algorithm}{out_path_ending}.csv"), index=False)
+        exit()
+
+    # from here on, algorithm is "optimize"
+    assert algorithm == "optimize"
+
+    # extend OD matrix because otherwise we get disconnected car graph
+    od = extend_od_circular(od, node_list)
 
     G_street = lane_to_street_graph(G_lane)
 
-    print("Running LP for pareto frontier...")
-    tic = time.time()
-    ip = define_IP(
-        G_street,
-        cap_factor=1,
-        od_df=od,
-        bike_flow_constant=FLOW_CONSTANT,
-        car_flow_constant=FLOW_CONSTANT,
-        shared_lane_factor=shared_lane_factor,
-        weight_od_flow=WEIGHT_OD_FLOW,
-    )
-    toc = time.time()
-    print("Finish init", toc - tic)
-    ip.optimize()
-    toc2 = time.time()
-    print("Finish optimization", toc2 - toc)
-    print("OPT VALUE", ip.objective_value)
+    # tune the car_weight
+    integer_solutions = []
+    for car_weight in [0.1, 0.25, 0.5, 0.75] + list(np.arange(1, 10)):
+        print(f"Running LP for pareto frontier (car weight={car_weight})...")
+        tic = time.time()
+        ip = define_IP(
+            G_street,
+            cap_factor=1,
+            od_df=od,
+            bike_flow_constant=FLOW_CONSTANT,
+            car_flow_constant=FLOW_CONSTANT,
+            shared_lane_factor=shared_lane_factor,
+            weight_od_flow=WEIGHT_OD_FLOW,
+            car_weight=car_weight,
+        )
+        toc = time.time()
+        print("Finish init", toc - tic)
+        ip.optimize()
+        toc2 = time.time()
+        print("Finish optimization", toc2 - toc)
+        print("OPT VALUE", ip.objective_value)
 
-    # nx.write_gpickle(G, "outputs/real_G.gpickle")
-    capacity_values = output_to_dataframe(ip, G_street)
-    capacity_values.to_csv(os.path.join(OUT_PATH, "real_u_solution.csv"), index=False)
-    del ip
-    # flow_df = flow_to_df(ip, list(G_street.edges))
-    # flow_df.to_csv(os.path.join(OUT_PATH, "real_flow_solution.csv"), index=False)
+        # nx.write_gpickle(G, "outputs/real_G.gpickle")
+        capacity_values = output_to_dataframe(ip, G_street)
+        # capacity_values.to_csv(os.path.join(out_path, f"real_capacities_{car_weight}.csv"), index=False)
 
-    # compute the paretor frontier
-    tic = time.time()
-    pareto_df = pareto_frontier(
-        G_lane,
-        capacity_values,
-        shared_lane_factor=shared_lane_factor,
-        sp_method=SP_METHOD,
-        od_matrix=od,
-        weight_od_flow=WEIGHT_OD_FLOW,
-    )
-    print("Time pareto", time.time() - tic)
-    pareto_df.to_csv(os.path.join(OUT_PATH, f"real_pareto_df{out_path_ending}.csv"), index=False)
+        # if all values are integer by chance, add to integer solutions (but they should already be contained in pareto)
+        if np.all(
+            capacity_values[["u_b(e)", "u_c(e)"]].values == capacity_values[["u_b(e)", "u_c(e)"]].values.astype(int)
+        ):
+            print("All solutions are integer - store integer solution")
+            bike_G, car_G = graph_from_integer_solution(capacity_values.copy())
+            int_res_dict = compute_travel_times(
+                G_lane.copy(),
+                bike_G,
+                car_G,
+                od_matrix=od,
+                sp_method=sp_method,
+                shared_lane_factor=shared_lane_factor,
+                weight_od_flow=WEIGHT_OD_FLOW,
+            )
+            int_res_dict["car_weight"] = car_weight
+            integer_solutions.append(int_res_dict)
+
+            # # Code to output the graph
+            # from ebike_city_tools.utils import output_lane_graph
+            # G_lane_output = output_lane_graph(G_lane, bike_G, car_G, shared_lane_factor)
+            # edge_df = nx.to_pandas_edgelist(G_lane_output, edge_key="edge_key")
+            # edge_df.to_csv("outputs/edge_df_example.csv", index=False)
+            # del ip
+            # exit()
+
+        del ip
+
+        # compute the paretor frontier
+        tic = time.time()
+        pareto_df = pareto_frontier(
+            G_lane,
+            capacity_values,
+            shared_lane_factor=shared_lane_factor,
+            sp_method=sp_method,
+            od_matrix=od,
+            weight_od_flow=WEIGHT_OD_FLOW,
+        )
+        print("Time pareto", time.time() - tic)
+        pareto_df.to_csv(os.path.join(out_path, f"real_pareto_optimize{out_path_ending}_{car_weight}.csv"), index=False)
+
+    # store integer solutions
+    integer_solutions = pd.DataFrame(integer_solutions)
+    integer_solutions.to_csv(os.path.join(out_path, f"real_pareto_optimize{out_path_ending}_integer.csv"), index=False)
+
+    # combine all pareto frontiers
+    combined_pareto = combine_pareto_frontiers(out_path)
+    combined_pareto.to_csv(os.path.join(out_path, f"real_pareto_combined_optimize{out_path_ending}.csv"), index=False)
