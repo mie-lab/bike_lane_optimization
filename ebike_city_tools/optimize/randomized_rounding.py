@@ -3,15 +3,10 @@ import pandas as pd
 import numpy as np
 import random
 
-from ebike_city_tools.utils import add_bike_and_car_time
-from ebike_city_tools.metrics import od_sp
-
 from ebike_city_tools.optimize.rounding_utils import (
     build_bike_network_from_df,
     build_car_network_from_df,
-    edge_to_source_target,
     result_to_streets,
-    repeat_and_edgekey,
 )
 
 

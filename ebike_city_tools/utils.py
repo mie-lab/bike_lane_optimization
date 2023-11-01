@@ -270,39 +270,6 @@ def compute_bike_time(distance, gradient):
         return distance / (21.6 - 0.86 * gradient)
 
 
-def add_bike_and_car_time(G_lane, bike_G, car_G, shared_lane_factor=2):
-    """
-    DEPRECATED --> use function below (output_lane_graph)
-    Add two attributes to the graph G_lane: biketime and cartime
-    """
-    bike_edges = bike_G.edges()
-    car_edges = car_G.edges()
-
-    # thought: can keep it a multigraph because we are iterating
-    for u, v, k, attributes in G_lane.edges(data=True, keys=True):
-        e = (u, v, k)
-
-        # 1) Car travel time: simply check whether the edge exists:
-        if (u, v) in car_edges:
-            G_lane.edges[e]["cartime"] = 60 * attributes["distance"] / attributes["speed_limit"]
-        else:
-            G_lane.edges[e]["cartime"] = np.inf
-
-        # 2) Bike travel time
-        # Case 1: There is a bike lane on this edge
-        if (u, v) in bike_edges:
-            G_lane.edges[e]["biketime"] = 60 * compute_bike_time(attributes["distance"], attributes["gradient"])
-        # Case 2: There is no bike lane, but a car lane in the right direction --> multiply with shared_lane_factor
-        elif (u, v) in car_edges:
-            G_lane.edges[e]["biketime"] = (
-                60 * shared_lane_factor * compute_bike_time(attributes["distance"], attributes["gradient"])
-            )
-        # Case 3: Neither a bike lane nor a directed car lane exists
-        else:
-            G_lane.edges[e]["biketime"] = np.inf
-    return G_lane
-
-
 def compute_car_time(row):
     if row["lanetype"] == "M":
         return 60 * row["distance"] / row["speed_limit"]
@@ -376,8 +343,8 @@ def output_lane_graph(
         edges_G_lane_doubled, how="left", left_on=["source", "target"], right_on=["source", "target"]
     )
     # Step 4: compute bike and car time
-    all_edges_with_attributes["cartime"] = all_edges_with_attributes.apply(compute_car_time, axis=1)
-    all_edges_with_attributes["biketime"] = all_edges_with_attributes.apply(
+    all_edges_with_attributes["car_time"] = all_edges_with_attributes.apply(compute_car_time, axis=1)
+    all_edges_with_attributes["bike_time"] = all_edges_with_attributes.apply(
         compute_edgedependent_bike_time, shared_lane_factor=shared_lane_factor, axis=1
     )
 

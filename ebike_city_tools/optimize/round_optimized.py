@@ -12,7 +12,7 @@ from ebike_city_tools.utils import (
     output_to_dataframe,
 )
 from ebike_city_tools.iterative_algorithms import transform_car_to_bike_edge
-from ebike_city_tools.metrics import od_sp
+from ebike_city_tools.metrics import compute_travel_times_in_graph
 
 FLOW_CONSTANT = 1
 
@@ -51,8 +51,6 @@ class ParetoRoundOptimize:
             pareto_frontier: pd.DataFrame with columns ["bike_time", car_time", "bike_edges", "car_edges"]
         """
         G_lane = self.G_lane.copy()
-        od_matrix = self.od
-        sp_method = self.sp_method
         weight_od_flow = self.optimize_kwargs.get("weight_od_flow", False)
 
         # we need the car graph only to check for strongly connected
@@ -149,13 +147,10 @@ class ParetoRoundOptimize:
             }
             fixed_capacities.index = fixed_capacities.index + 2
 
-            # compute new travel times -> TODO: move to metric computation where this is already done
-            if sp_method == "od":
-                bike_travel_time = od_sp(G_lane, od_matrix, weight="bike_time", weight_od_flow=weight_od_flow)
-                car_travel_time = od_sp(G_lane, od_matrix, weight="car_time", weight_od_flow=weight_od_flow)
-            else:
-                bike_travel_time = np.mean(pd.DataFrame(nx.floyd_warshall(G_lane, weight="bike_time")).values)
-                car_travel_time = np.mean(pd.DataFrame(nx.floyd_warshall(G_lane, weight="car_time")).values)
+            # compute new travel times
+            bike_travel_time, car_travel_time = compute_travel_times_in_graph(
+                G_lane, self.od, self.sp_method, weight_od_flow
+            )
             pareto_df.append(
                 {
                     "bike_edges_added": edges_removed,

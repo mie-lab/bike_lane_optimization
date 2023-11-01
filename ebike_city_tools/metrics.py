@@ -23,7 +23,7 @@ def sp_hops(G):
     return np.mean(sp_lens)
 
 
-def sp_length(G, attr="cartime", return_matrix=False):
+def sp_length(G, attr="car_time", return_matrix=False):
     out = pd.DataFrame(nx.floyd_warshall(G, weight=attr))
     if return_matrix:
         return out.values
@@ -55,6 +55,16 @@ def od_sp(G, od, weight, weight_od_flow=False):
     return np.mean(sp)
 
 
+def compute_travel_times_in_graph(G_lane_output, od_matrix, sp_method, weight_od_flow):
+    if sp_method == "od":
+        bike_travel_time = od_sp(G_lane_output, od_matrix, weight="bike_time", weight_od_flow=weight_od_flow)
+        car_travel_time = od_sp(G_lane_output, od_matrix, weight="car_time", weight_od_flow=weight_od_flow)
+    else:
+        bike_travel_time = np.mean(pd.DataFrame(nx.floyd_warshall(G_lane_output, weight="bike_time")).values)
+        car_travel_time = np.mean(pd.DataFrame(nx.floyd_warshall(G_lane_output, weight="car_time")).values)
+    return bike_travel_time, car_travel_time
+
+
 def compute_travel_times(
     G_lane, bike_G, car_G, od_matrix=None, sp_method="all_pairs", shared_lane_factor=2, weight_od_flow=False
 ):
@@ -70,12 +80,9 @@ def compute_travel_times(
     # car lanes by bike
     G_lane_output = output_lane_graph(G_lane, bike_G, car_G, shared_lane_factor)
     # measure weighted times (floyd-warshall)
-    if sp_method == "od":
-        bike_travel_time = od_sp(G_lane_output, od_matrix, weight="biketime", weight_od_flow=weight_od_flow)
-        car_travel_time = od_sp(G_lane_output, od_matrix, weight="cartime", weight_od_flow=weight_od_flow)
-    else:
-        bike_travel_time = np.mean(pd.DataFrame(nx.floyd_warshall(G_lane_output, weight="biketime")).values)
-        car_travel_time = np.mean(pd.DataFrame(nx.floyd_warshall(G_lane_output, weight="cartime")).values)
+    bike_travel_time, car_travel_time = compute_travel_times_in_graph(
+        G_lane_output, od_matrix, sp_method, weight_od_flow
+    )
     return {
         "bike_edges": bike_G.number_of_edges(),
         "car_edges": car_G.number_of_edges(),

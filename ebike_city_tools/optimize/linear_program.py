@@ -99,10 +99,10 @@ def define_IP(
 
     # Creation of time attribute
     for e in G.edges:
-        G.edges[e]["biketime"] = compute_bike_time(distance[e], gradient[e])
-        G.edges[e]["cartime"] = distance[e] / speed_limit[e]
-    bike_time = nx.get_edge_attributes(G, "biketime")
-    car_time = nx.get_edge_attributes(G, "cartime")
+        G.edges[e]["bike_time"] = compute_bike_time(distance[e], gradient[e])
+        G.edges[e]["car_time"] = distance[e] / speed_limit[e]
+    bike_time = nx.get_edge_attributes(G, "bike_time")
+    car_time = nx.get_edge_attributes(G, "car_time")
 
     # Optimization problem
     streetIP = mip.Model(name="bike lane allocation", sense=mip.MINIMIZE)
