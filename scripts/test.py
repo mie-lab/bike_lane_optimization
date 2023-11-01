@@ -19,7 +19,7 @@ if __name__ == "__main__":
     G_lane = random_lane_graph(10)
     G_street = lane_to_street_graph(G_lane)
     od = make_fake_od(10, 50, nodes=G_street.nodes)
-    
+
     # # for flow-sum-constraint: compute maximal number of paths that could pass through one edge
     # max_paths_one_edge = len(od)  # maximum number of paths through one edge corresponds to number of OD-pairs
     # FACTOR_MAX_PATHS = 0.5  # only half of the paths are allowed to use the same street
@@ -37,12 +37,12 @@ if __name__ == "__main__":
     # for linear, we hto compute the paretor frontier
     # pareto_df = pareto_frontier(G_lane, capacity_values, shared_lane_factor=shared_lane_factor)
     # pareto_df.to_csv(os.path.join(OUT_PATH, "test_pareto_df.csv"))
-    
+
     # plot pareto frontier
-    for idx, pareto_df in enumerate(pareto_fronts) :
-        plt.scatter(pareto_df["bike_time"], pareto_df["car_time"], label = idx)
+    for idx, pareto_df in enumerate(pareto_fronts):
+        plt.scatter(pareto_df["bike_time"], pareto_df["car_time"], label=idx)
     plt.legend()
-    plt.savefig("comparison_front.png")
+    # plt.savefig("comparison_front.png")
     plt.show()
 
     print("OPT VALUE", optim.lp.objective_value)
