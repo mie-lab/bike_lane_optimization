@@ -3,7 +3,7 @@ import argparse
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from ebike_city_tools.utils import combine_pareto_frontiers
+from ebike_city_tools.optimize.rounding_utils import combine_pareto_frontiers
 from ebike_city_tools.metrics import hypervolume_indicator
 
 

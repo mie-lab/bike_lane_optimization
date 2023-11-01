@@ -38,19 +38,17 @@ class Optimizer:
         print("Initialized LP", time.time() - tic)
 
     def init_lp_with_fixed_edges(self, edge_df):
-        #Auxiliary function that fixes the values for a set of edges
+        # Auxiliary function that fixes the values for a set of edges
         tic = time.time()
         self.lp = define_IP(
             self.graph,
-            fixed_edges = edge_df,
+            fixed_edges=edge_df,
             od_df=self.od_matrix,
             shared_lane_factor=self.shared_lane_factor,
             integer_problem=self.integer_problem,
             **self.optimizer_args
         )
         print("Initialized LP with fixed edges", time.time() - tic)
-        
-
 
     def optimize(self):
         assert self.lp is not None, "LP needs to initialized first, call init_lp"
@@ -77,7 +75,7 @@ class Optimizer:
     def get_solution(self, return_flow=False):
         dataframe_edge_cap = output_to_dataframe(self.lp, self.graph, self.fixed_edges)
         if return_flow:
-            flow_df = flow_to_df(self.lp, list(self.graph.edges))
+            flow_df = flow_to_df(self.lp)
             return dataframe_edge_cap, flow_df
         return dataframe_edge_cap
 

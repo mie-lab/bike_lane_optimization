@@ -93,7 +93,7 @@ def deprecated_version():
     """Method only kept here for reference"""
     if True:
         # get flow variables
-        flow_df = flow_to_df(ip, list(G.edges))
+        flow_df = flow_to_df(ip)
         flow_df = flow_df[flow_df["flow"] > 0]
 
         # # writing and reading for debugging
