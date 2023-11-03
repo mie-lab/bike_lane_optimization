@@ -1,5 +1,6 @@
 import time
 import os
+import json
 import argparse
 import pandas as pd
 from ebike_city_tools.optimize.linear_program import define_IP
@@ -134,7 +135,7 @@ if __name__ == "__main__":
     G_street = lane_to_street_graph(G_lane)
 
     # tune the car_weight
-    integer_solutions = []
+    runtimes_pareto = []
     for car_weight in [0.1, 0.25, 0.5, 0.75] + list(np.arange(1, 10)):
         print(f"Running LP for pareto frontier (car weight={car_weight})...")
         if ROUNDING_METHOD == "round_simple":
@@ -190,11 +191,16 @@ if __name__ == "__main__":
             pareto_df = opt.pareto()
 
             print("Time pareto", time.time() - tic)
+            runtimes_pareto.append(time.time() - tic)
         else:
             raise ValueError("Rounding method must be one of {round_bike_optimize, round_simple}")
 
         # save to file
         pareto_df.to_csv(os.path.join(out_path, f"real_pareto_optimize{out_path_ending}_{car_weight}.csv"), index=False)
+
+    # save runtimes
+    with open(os.path.join(out_path, "runtimes_pareto.json"), "w") as outfile:
+        json.dump(runtimes_pareto, outfile)
 
     # combine all pareto frontiers
     combined_pareto = combine_pareto_frontiers(combine_paretos_from_path(out_path))
