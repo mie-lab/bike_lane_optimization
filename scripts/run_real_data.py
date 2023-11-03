@@ -8,8 +8,8 @@ from ebike_city_tools.utils import (
     extend_od_circular,
     output_to_dataframe,
 )
-from ebike_city_tools.optimize.rounding_utils import combine_paretos_from_path
-from ebike_city_tools.optimize.round_simple import graph_from_integer_solution, compute_travel_times, pareto_frontier
+from ebike_city_tools.optimize.rounding_utils import combine_paretos_from_path, combine_pareto_frontiers
+from ebike_city_tools.optimize.round_simple import pareto_frontier
 from ebike_city_tools.iterative_algorithms import betweenness_pareto, topdown_betweenness_pareto
 from ebike_city_tools.optimize.wrapper import adapt_edge_attributes
 from ebike_city_tools.optimize.round_optimized import ParetoRoundOptimize
@@ -28,6 +28,7 @@ ROUNDING_METHOD = "round_bike_optimize"
 IGNORE_FIXED = True
 FLOW_CONSTANT = 1  # how much flow to send through a path
 WEIGHT_OD_FLOW = False
+OPTIMIZE_EVERY_K = 10
 algorithm_dict = {
     "betweenness_topdown": (topdown_betweenness_pareto, {}),
     "betweenness_cartime": (betweenness_pareto, {"betweenness_attr": "car_time"}),
@@ -180,7 +181,7 @@ if __name__ == "__main__":
             opt = ParetoRoundOptimize(
                 G_lane.copy(),
                 od.copy(),
-                optimize_every_x=20,
+                optimize_every_x=OPTIMIZE_EVERY_K,
                 car_weight=car_weight,
                 sp_method=sp_method,
                 shared_lane_factor=shared_lane_factor,
@@ -196,5 +197,5 @@ if __name__ == "__main__":
         pareto_df.to_csv(os.path.join(out_path, f"real_pareto_optimize{out_path_ending}_{car_weight}.csv"), index=False)
 
     # combine all pareto frontiers
-    combined_pareto = combine_paretos_from_path(out_path)
+    combined_pareto = combine_pareto_frontiers(combine_paretos_from_path(out_path))
     combined_pareto.to_csv(os.path.join(out_path, f"real_pareto_combined_optimize{out_path_ending}.csv"), index=False)
