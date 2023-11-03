@@ -232,14 +232,14 @@ if __name__ == "__main__":
             int_res_dict["car_weight"] = car_weight
             integer_solutions.append(int_res_dict)
 
-            # # Code to output the graph
-            # from ebike_city_tools.utils import output_lane_graph
-            # G_lane_output = output_lane_graph(G_lane, bike_G, car_G, shared_lane_factor)
-            # edge_df = nx.to_pandas_edgelist(G_lane_output, edge_key="edge_key")
-            # edge_df.to_csv("outputs/edge_df_example.csv", index=False)
-            # del ip
-            # exit()
+        # # Code to output graph
+        # from ebike_city_tools.utils import output_lane_graph
+        # from ebike_city_tools.optimize.round_simple import rounding_and_splitting
 
+        # bike_G, car_G = rounding_and_splitting(capacity_values, bike_edges_to_add=110)
+        # G_lane_output = output_lane_graph(G_lane, bike_G, car_G, shared_lane_factor)
+        # edge_df = nx.to_pandas_edgelist(G_lane_output, edge_key="edge_key")
+        # edge_df.to_csv("outputs/edge_df_affoltern.csv", index=False)
         del ip
 
         # compute the paretor frontier

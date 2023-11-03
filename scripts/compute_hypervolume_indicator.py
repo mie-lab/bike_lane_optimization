@@ -87,4 +87,4 @@ for (nodes, edges, od_size), part_df in int_vs_lin.groupby(["nodes", "edges", "o
 
 hi_res = pd.DataFrame(hi_res)
 hi_res["increase_percent"] = (hi_res["HI linear"] - hi_res["HI integer"]) / hi_res["HI integer"] * 100
-hi_res.to_csv(os.path.join(args.out_path, "hypervolue_indicator.csv"), index=False)
+hi_res.to_csv(os.path.join(args.out_path, "hypervolume_indicator.csv"), index=False)

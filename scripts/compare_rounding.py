@@ -21,12 +21,12 @@ OUT_PATH = "outputs/round_optimized"
 os.makedirs(OUT_PATH, exist_ok=True)
 
 GRAPH_TRIALS = 5
-OPTIMIZE_EVERY_LIST = [100, 25, 15, 10, 5, 2]
+OPTIMIZE_EVERY_LIST = [100, 25, 15, 10, 5]
 
 np.random.seed(42)
 
 if __name__ == "__main__":
-    for graph_trial in range(GRAPH_TRIALS):
+    for graph_trial, graph_size in enumerate([30, 30, 30, 40, 40, 40, 50, 50, 50]):
         G_lane = random_lane_graph(GRAPH_SIZE)
         od = make_fake_od(GRAPH_SIZE, 90, nodes=G_lane.nodes)
 
@@ -57,6 +57,7 @@ if __name__ == "__main__":
     cols_betweenness = ["black", "grey", "lightgrey"]
     # load data and plot for every graph trial
     for graph_trial in range(GRAPH_TRIALS):
+        plt.figure(figsize=(8, 5))
         for baseline, col in zip(algorithm_dict.keys(), cols_betweenness):
             pareto_front = pd.read_csv(os.path.join(OUT_PATH, f"pareto_{baseline}_{graph_trial}.csv"))
             plt.plot(pareto_front["bike_time"], pareto_front["car_time"], label=baseline, c=col, linestyle="--")

@@ -58,7 +58,7 @@ class ParetoRoundOptimize:
 
         # without key but directed
         is_bike = {edge: False for edge in G_lane.edges(keys=False)}
-        is_fixed_car = {edge: False for edge in G_lane.edges(keys=True)}  # TODO: get this from graph
+        is_fixed_car = {edge: False for edge in G_lane.edges(keys=False)}  # TODO: get this from graph
 
         # set lanetype to car
         nx.set_edge_attributes(G_lane, "M", name="lanetype")
@@ -83,7 +83,7 @@ class ParetoRoundOptimize:
         found_edge = True
 
         # while we still find an edge to change
-        while found_edge:  # TODO not np.all(np.array(list(is_bike_or_fixed.values()))):
+        while found_edge:
             if edges_removed % self.optimize_every_x == 0:
                 # Run optimization
                 capacities = self.optimize(fixed_capacities)
@@ -99,20 +99,15 @@ class ParetoRoundOptimize:
                     continue
                 # get one actual lane (not a street) by adding some key (does not matter which one)
                 first_key = list(dict(G_lane[e[0]][e[1]]))[0]
-                extended_with_key = (e[0], e[1], first_key)
+                edge_to_transform = (e[0], e[1], first_key)
                 # check if this edge is already a bike lane
-                if not is_fixed_car[extended_with_key]:
-                    edge_to_transform = extended_with_key
-
+                if not is_fixed_car[e]:
                     # check if edge can be removed, if not, add it back, mark as fixed and continue
                     car_graph.remove_edge(*edge_to_transform)
                     if not nx.is_strongly_connected(car_graph):
                         car_graph.add_edge(*edge_to_transform)
                         # mark edge as car graph
-                        is_fixed_car[
-                            edge_to_transform
-                        ] = True  # TODO: can't we also use the non-key edges for is_fixed_car?
-                        # TODO: do I need to fix car capacities? to what value?
+                        is_fixed_car[e] = True
                         continue
                     else:
                         found_edge = True
