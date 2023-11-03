@@ -257,7 +257,7 @@ def betweenness_pareto(
     # we need the car graph only to check for strongly connected
     car_graph = G_lane.copy()
 
-    is_bike_or_fixed = {edge: False for edge in G_lane.edges}  # TODO: get edge attribute "fixed"
+    is_bike_or_fixed = nx.get_edge_attributes(G_lane, "fixed")
 
     # set lanetype to car
     nx.set_edge_attributes(G_lane, "M", name="lanetype")
@@ -288,14 +288,19 @@ def betweenness_pareto(
 
     edges_removed = 0
     # max_iters = car_graph.number_of_edges() * 10
-    # iteratively add edges
-    while not np.all(np.array(list(is_bike_or_fixed.values()))):
+    # iteratively add edges until no edge is found anymore
+    edge_found = True
+    while edge_found:
         # sort betweenens centrality (use highest centrality if bike_time, so reverse)
         sorted_by_betweenness = sorted(betweenness.items(), key=lambda x: x[1], reverse=betweenness_attr == "bike_time")
+        edge_found = False
         for s in sorted_by_betweenness:
-            if not is_bike_or_fixed[s[0]]:
+            if not is_bike_or_fixed.get(s[0], False):
                 edge_to_transform = s[0]
+                edge_found = True
                 break
+        if not edge_found:
+            break
 
         # mark edge as checked
         is_bike_or_fixed[edge_to_transform] = True

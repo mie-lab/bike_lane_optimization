@@ -15,7 +15,7 @@ WEIGHT_OD_FLOW = False
 FLOW_CONSTANT = 1
 
 
-def adapt_edge_attributes(L: nx.MultiDiGraph):
+def adapt_edge_attributes(L: nx.MultiDiGraph, ignore_fixed=False):
     """Sets new edge attributes to be used in the optimization algorithm"""
     # add capacity attribute to 1 for all lanes
     nx.set_edge_attributes(L, 1, name="capacity")
@@ -24,6 +24,9 @@ def adapt_edge_attributes(L: nx.MultiDiGraph):
     distances = nx.get_edge_attributes(L, "length")
     distances = {k: v / 1000 for k, v in distances.items()}  # transform to km
     nx.set_edge_attributes(L, distances, "distance")
+
+    if ignore_fixed:
+        nx.set_edge_attributes(L, False, "fixed")
 
     # add gradient attribute
     elevation_dict = nx.get_node_attributes(L, "elevation")

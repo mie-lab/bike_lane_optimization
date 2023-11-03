@@ -8,10 +8,11 @@ from ebike_city_tools.utils import (
     extend_od_circular,
     output_to_dataframe,
 )
-from ebike_city_tools.optimize.rounding_utils import combine_pareto_frontiers
+from ebike_city_tools.optimize.rounding_utils import combine_paretos_from_path
 from ebike_city_tools.optimize.round_simple import graph_from_integer_solution, compute_travel_times, pareto_frontier
 from ebike_city_tools.iterative_algorithms import betweenness_pareto, topdown_betweenness_pareto
 from ebike_city_tools.optimize.wrapper import adapt_edge_attributes
+from ebike_city_tools.optimize.round_optimized import ParetoRoundOptimize
 import numpy as np
 import geopandas as gpd
 import networkx as nx
@@ -23,6 +24,8 @@ from snman.constants import (
     KEY_GIVEN_LANES_DESCRIPTION,
 )
 
+ROUNDING_METHOD = "round_bike_optimize"
+IGNORE_FIXED = True
 FLOW_CONSTANT = 1  # how much flow to send through a path
 WEIGHT_OD_FLOW = False
 algorithm_dict = {
@@ -30,65 +33,6 @@ algorithm_dict = {
     "betweenness_cartime": (betweenness_pareto, {"betweenness_attr": "car_time"}),
     "betweenness_biketime": (betweenness_pareto, {"betweenness_attr": "bike_time"}),
 }
-
-
-def deprecated_table_to_graph(
-    edge_table, node_table=None, edge_attributes={"width_total_m": "capacity"}, node_attributes={"geometry": "location"}
-):
-    """
-    DEPRECATED
-    edge_table: pd.DataFrame with columns u, v, and the required edge attributes
-    node_table (Optional): table with the node id as the index column and the edge id as the
-    edge_attributes: Dictionary of the form {columns-name-in-table : desired-attribute_name-in-graph}
-    node_attributes: Dictionary of the form {columns-name-in-table : desired-attribute_name-in-graph}
-    """
-    # init graph
-    G = nx.DiGraph()
-
-    # add edge list
-    edge_list = []
-    for row_ind, edge_row in edge_table.iterrows():
-        # extract the edge attributes
-        edge_attr = {attr_name: edge_row[col_name] for col_name, attr_name in edge_attributes.items()}
-        # add edge with attributes to the list
-        edge_list.append([edge_row["u"], edge_row["v"], edge_attr])
-        edge_attr["gradient"] = -edge_attr["gradient"]
-        edge_list.append([edge_row["v"], edge_row["u"], edge_attr])
-    G.add_edges_from(edge_list)
-
-    # set node attributes
-    node_attrs = {}
-    for row_ind, node_row in node_table.iterrows():
-        node_attrs[row_ind] = {attr_name: node_row[col_name] for col_name, attr_name in node_attributes.items()}
-    nx.set_node_attributes(G, node_attrs)
-    return G
-
-
-def deprecated_load_graph(path):
-    # load nodes and edges
-    nodes = gpd.read_file(os.path.join(path, "nodes_all_attributes.gpkg")).set_index("osmid")
-    edges = gpd.read_file(os.path.join(path, "edges_all_attributes.gpkg"))
-    edges = edges[["u", "v", "width_total_m", "maxspeed", "lanes", "length"]]
-    # remove the ones with start and end at the same point
-    edges = edges[edges["u"] != edges["v"]]
-    # there are many 1.8 and 0.9 wide streets -> transform into 1 and 2 lane streets
-    edges["width_total_m"] = edges["width_total_m"].round()  # TODO
-    # fill nans of the capacity with 1
-    # edges["lanes"] = edges["lanes"].fillna(1)
-
-    # compute gradient
-    gradient = []
-    for i in range(len(edges)):
-        gradient.append(
-            100 * (nodes["elevation"][edges.iloc[i, 1]] - nodes["elevation"][edges.iloc[i, 0]]) / edges.iloc[i, 5]
-        )
-    edges["gradient"] = gradient
-
-    # construct graph
-    G = deprecated_table_to_graph(
-        edges, nodes, {"width_total_m": "capacity", "length": "distance", "gradient": "gradient"}
-    )
-    return G
 
 
 def generate_motorized_lane_graph(
@@ -114,7 +58,7 @@ def generate_motorized_lane_graph(
     # make sure that the graph is strongly connected
     L = graph_utils.keep_only_the_largest_connected_component(L)
     # add some edge attributes that we need for the optimization (e.g. slope)
-    L = adapt_edge_attributes(L)
+    L = adapt_edge_attributes(L, ignore_fixed=IGNORE_FIXED)
     if return_H:
         return H, L
     return L
@@ -192,73 +136,65 @@ if __name__ == "__main__":
     integer_solutions = []
     for car_weight in [0.1, 0.25, 0.5, 0.75] + list(np.arange(1, 10)):
         print(f"Running LP for pareto frontier (car weight={car_weight})...")
-        tic = time.time()
-        ip = define_IP(
-            G_street,
-            cap_factor=1,
-            od_df=od,
-            bike_flow_constant=FLOW_CONSTANT,
-            car_flow_constant=FLOW_CONSTANT,
-            shared_lane_factor=shared_lane_factor,
-            weight_od_flow=WEIGHT_OD_FLOW,
-            car_weight=car_weight,
-        )
-        toc = time.time()
-        print("Finish init", toc - tic)
-        ip.optimize()
-        toc2 = time.time()
-        print("Finish optimization", toc2 - toc)
-        print("OPT VALUE", ip.objective_value)
+        if ROUNDING_METHOD == "round_simple":
+            tic = time.time()
+            ip = define_IP(
+                G_street,
+                cap_factor=1,
+                od_df=od,
+                bike_flow_constant=FLOW_CONSTANT,
+                car_flow_constant=FLOW_CONSTANT,
+                shared_lane_factor=shared_lane_factor,
+                weight_od_flow=WEIGHT_OD_FLOW,
+                car_weight=car_weight,
+            )
+            toc = time.time()
+            ip.optimize()
+            toc2 = time.time()
 
-        # nx.write_gpickle(G, "outputs/real_G.gpickle")
-        capacity_values = output_to_dataframe(ip, G_street)
-        # capacity_values.to_csv(os.path.join(out_path, f"real_capacities_{car_weight}.csv"), index=False)
-
-        # if all values are integer by chance, add to integer solutions (but they should already be contained in pareto)
-        if np.all(
-            capacity_values[["u_b(e)", "u_c(e)"]].values == capacity_values[["u_b(e)", "u_c(e)"]].values.astype(int)
-        ):
-            print("All solutions are integer - store integer solution")
-            bike_G, car_G = graph_from_integer_solution(capacity_values.copy())
-            int_res_dict = compute_travel_times(
-                G_lane.copy(),
-                bike_G,
-                car_G,
+            # nx.write_gpickle(G, "outputs/real_G.gpickle")
+            capacity_values = output_to_dataframe(ip, G_street)
+            # capacity_values.to_csv(os.path.join(out_path, f"real_capacities_{car_weight}.csv"), index=False)
+            pareto_df = pareto_frontier(
+                G_lane,
+                capacity_values,
+                shared_lane_factor=shared_lane_factor,
+                sp_method=sp_method,
                 od_matrix=od,
+                weight_od_flow=WEIGHT_OD_FLOW,
+            )
+
+            # # Code to output graph
+            # from ebike_city_tools.utils import output_lane_graph
+            # from ebike_city_tools.optimize.round_simple import rounding_and_splitting
+
+            # bike_G, car_G = rounding_and_splitting(capacity_values, bike_edges_to_add=110)
+            # G_lane_output = output_lane_graph(G_lane, bike_G, car_G, shared_lane_factor)
+            # edge_df = nx.to_pandas_edgelist(G_lane_output, edge_key="edge_key")
+            # edge_df.to_csv("outputs/edge_df_affoltern.csv", index=False)
+            del ip
+        elif ROUNDING_METHOD == "round_bike_optimize":
+            # compute the paretor frontier
+            tic = time.time()
+
+            opt = ParetoRoundOptimize(
+                G_lane.copy(),
+                od.copy(),
+                optimize_every_x=20,
+                car_weight=car_weight,
                 sp_method=sp_method,
                 shared_lane_factor=shared_lane_factor,
                 weight_od_flow=WEIGHT_OD_FLOW,
             )
-            int_res_dict["car_weight"] = car_weight
-            integer_solutions.append(int_res_dict)
+            pareto_df = opt.pareto()
 
-        # # Code to output graph
-        # from ebike_city_tools.utils import output_lane_graph
-        # from ebike_city_tools.optimize.round_simple import rounding_and_splitting
+            print("Time pareto", time.time() - tic)
+        else:
+            raise ValueError("Rounding method must be one of {round_bike_optimize, round_simple}")
 
-        # bike_G, car_G = rounding_and_splitting(capacity_values, bike_edges_to_add=110)
-        # G_lane_output = output_lane_graph(G_lane, bike_G, car_G, shared_lane_factor)
-        # edge_df = nx.to_pandas_edgelist(G_lane_output, edge_key="edge_key")
-        # edge_df.to_csv("outputs/edge_df_affoltern.csv", index=False)
-        del ip
-
-        # compute the paretor frontier
-        tic = time.time()
-        pareto_df = pareto_frontier(
-            G_lane,
-            capacity_values,
-            shared_lane_factor=shared_lane_factor,
-            sp_method=sp_method,
-            od_matrix=od,
-            weight_od_flow=WEIGHT_OD_FLOW,
-        )
-        print("Time pareto", time.time() - tic)
+        # save to file
         pareto_df.to_csv(os.path.join(out_path, f"real_pareto_optimize{out_path_ending}_{car_weight}.csv"), index=False)
 
-    # store integer solutions
-    integer_solutions = pd.DataFrame(integer_solutions)
-    integer_solutions.to_csv(os.path.join(out_path, f"real_pareto_optimize{out_path_ending}_integer.csv"), index=False)
-
     # combine all pareto frontiers
-    combined_pareto = combine_pareto_frontiers(out_path)
+    combined_pareto = combine_paretos_from_path(out_path)
     combined_pareto.to_csv(os.path.join(out_path, f"real_pareto_combined_optimize{out_path_ending}.csv"), index=False)

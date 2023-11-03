@@ -58,7 +58,7 @@ class ParetoRoundOptimize:
 
         # without key but directed
         is_bike = {edge: False for edge in G_lane.edges(keys=False)}
-        is_fixed_car = {edge: False for edge in G_lane.edges(keys=False)}  # TODO: get this from graph
+        is_fixed_car = nx.get_edge_attributes(G_lane, "fixed")
 
         # set lanetype to car
         nx.set_edge_attributes(G_lane, "M", name="lanetype")
@@ -97,21 +97,27 @@ class ParetoRoundOptimize:
                 # also check if e is a bike lane already
                 if (e not in G_lane.edges()) or is_bike[e]:
                     continue
-                # get one actual lane (not a street) by adding some key (does not matter which one)
-                first_key = list(dict(G_lane[e[0]][e[1]]))[0]
-                edge_to_transform = (e[0], e[1], first_key)
-                # check if this edge is already a bike lane
-                if not is_fixed_car[e]:
-                    # check if edge can be removed, if not, add it back, mark as fixed and continue
-                    car_graph.remove_edge(*edge_to_transform)
-                    if not nx.is_strongly_connected(car_graph):
-                        car_graph.add_edge(*edge_to_transform)
-                        # mark edge as car graph
-                        is_fixed_car[e] = True
-                        continue
-                    else:
-                        found_edge = True
-                        break
+                # iterate over the lanes of this edge and try to find one that can be converted
+                for key in list(dict(G_lane[e[0]][e[1]])):
+                    edge_to_transform = (e[0], e[1], key)
+                    # check if this edge is already fixed
+                    if not is_fixed_car.get(edge_to_transform, False):
+                        # check if edge can be removed, if not, add it back, mark as fixed and continue
+                        car_graph.remove_edge(*edge_to_transform)
+                        if not nx.is_strongly_connected(car_graph):
+                            car_graph.add_edge(*edge_to_transform)
+                            # mark edge as car graph
+                            is_fixed_car[edge_to_transform] = True
+                            continue
+                        else:
+                            found_edge = True
+                            break
+                # stop when we found an edge that can be converted to a bike lane
+                if found_edge:
+                    break
+            # make sure that we stop and don't remove the last edge
+            if not found_edge:
+                break
 
             # if it can be removed, we transform the travel times
             # transform to bike lane -> update bike and car time
