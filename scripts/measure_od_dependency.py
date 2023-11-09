@@ -13,10 +13,13 @@ os.makedirs(OUT_PATH, exist_ok=True)
 SHARED_LANE_FACTOR = 2  # factor how much more expensive it is to bike on a car lane
 nr_trials_per_graph = 3
 CAR_WEIGHT = 1
+graph_trial_size_list = [20, 20, 20, 20, 30, 30, 30, 30, 40, 40, 40, 40, 50, 50, 50, 50, 60, 60, 60, 60]
+
+np.random.seed(42)
 
 res_df = []
 # create graphs with the following number of nodes
-for graph_num, n in enumerate([20, 20, 20, 20, 30, 30, 30, 30, 40, 40, 40, 40]):
+for graph_num, n in enumerate(graph_trial_size_list):
     # create graph
     G_lane = random_lane_graph(n)
     G_base = lane_to_street_graph(G_lane)
