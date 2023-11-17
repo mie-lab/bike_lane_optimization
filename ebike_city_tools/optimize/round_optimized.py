@@ -41,7 +41,7 @@ class ParetoRoundOptimize:
         ip.optimize()
         return output_to_dataframe(ip, self.G_street, fixed_edges=fixed_capacities)
 
-    def pareto(self, max_edges = np.inf, return_list=False) -> pd.DataFrame:
+    def pareto(self, max_bike_edges=np.inf, return_list=False, return_graph=False) -> pd.DataFrame:
         """
         Computes the pareto frontier of bike and car travel times by rounding in batches
         This algorithm optimizes the capacity every x bike edges. Then, we iterate through the sorted bike capacities,
@@ -83,7 +83,7 @@ class ParetoRoundOptimize:
         found_edge = True
 
         # while we still find an edge to change
-        while found_edge and edges_removed < max_edges:
+        while found_edge and edges_removed < max_bike_edges:
             if edges_removed % self.optimize_every_x == 0:
                 # Run optimization
                 capacities = self.optimize(fixed_capacities)
@@ -162,6 +162,9 @@ class ParetoRoundOptimize:
                 }
             )
             print(pareto_df[-1])
+
+        if return_graph:
+            return G_lane
         if return_list:
             return pareto_df
         return pd.DataFrame(pareto_df)

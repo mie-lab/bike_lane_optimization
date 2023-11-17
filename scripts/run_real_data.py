@@ -8,9 +8,10 @@ from ebike_city_tools.utils import (
     lane_to_street_graph,
     extend_od_circular,
     output_to_dataframe,
+    output_lane_graph,
 )
 from ebike_city_tools.optimize.rounding_utils import combine_paretos_from_path, combine_pareto_frontiers
-from ebike_city_tools.optimize.round_simple import pareto_frontier
+from ebike_city_tools.optimize.round_simple import pareto_frontier, rounding_and_splitting
 from ebike_city_tools.iterative_algorithms import betweenness_pareto, topdown_betweenness_pareto
 from ebike_city_tools.optimize.wrapper import adapt_edge_attributes
 from ebike_city_tools.optimize.round_optimized import ParetoRoundOptimize
@@ -30,6 +31,7 @@ IGNORE_FIXED = True
 FLOW_CONSTANT = 1  # how much flow to send through a path
 WEIGHT_OD_FLOW = False
 OPTIMIZE_EVERY_K = 10
+NUM_BIKE_EDGES = 120
 algorithm_dict = {
     "betweenness_topdown": (topdown_betweenness_pareto, {}),
     "betweenness_cartime": (betweenness_pareto, {"betweenness_attr": "car_time"}),
@@ -76,6 +78,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "-s", "--sp_method", default="od", type=str, help="Compute the shortest path either 'all_pairs' or 'od'"
     )
+    parser.add_argument("--save_graph", action="store_true", help="if true, only creating one graph and saving it")
     parser.add_argument(
         "-a",
         "--algorithm",
@@ -166,15 +169,13 @@ if __name__ == "__main__":
                 weight_od_flow=WEIGHT_OD_FLOW,
             )
 
-            # # Code to output graph
-            # from ebike_city_tools.utils import output_lane_graph
-            # from ebike_city_tools.optimize.round_simple import rounding_and_splitting
-
-            # bike_G, car_G = rounding_and_splitting(capacity_values, bike_edges_to_add=110)
-            # G_lane_output = output_lane_graph(G_lane, bike_G, car_G, shared_lane_factor)
-            # edge_df = nx.to_pandas_edgelist(G_lane_output, edge_key="edge_key")
-            # edge_df.to_csv("outputs/edge_df_affoltern.csv", index=False)
-            del ip
+            if args.save_graph:
+                bike_G, car_G = rounding_and_splitting(capacity_values, bike_edges_to_add=NUM_BIKE_EDGES)
+                G_lane_output = output_lane_graph(G_lane, bike_G, car_G, shared_lane_factor)
+                edge_df = nx.to_pandas_edgelist(G_lane_output, edge_key="edge_key")
+                edge_df.to_csv(os.path.join(out_path, "graph_edges.csv"), index=False)
+                del ip
+                exit()
         elif ROUNDING_METHOD == "round_bike_optimize":
             # compute the paretor frontier
             tic = time.time()
@@ -188,7 +189,11 @@ if __name__ == "__main__":
                 shared_lane_factor=shared_lane_factor,
                 weight_od_flow=WEIGHT_OD_FLOW,
             )
-            pareto_df = opt.pareto()
+            if args.save_graph:
+                G_lane_output = opt.pareto(return_graph=True, max_bike_edges=NUM_BIKE_EDGES)
+                edge_df = nx.to_pandas_edgelist(G_lane_output, edge_key="edge_key")
+                edge_df.to_csv(os.path.join(out_path, "graph_edges.csv"), index=False)
+                exit()
 
             print("Time pareto", time.time() - tic)
             runtimes_pareto.append(time.time() - tic)
