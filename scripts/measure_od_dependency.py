@@ -31,7 +31,7 @@ for graph_num, n in enumerate(graph_trial_size_list):
     # run several times to remove different parts from the OD matrix
     for i, trial in enumerate(range(nr_trials_per_graph)):
         # check for a reduction factor of 0.1, ... , 1
-        for od_reduction in np.arange(1, 0, -0.1):
+        for od_reduction in list(np.arange(1, 0, -0.1)) + [0.05]:
             G = G_base.copy()
 
             # reduce od matrix
@@ -52,9 +52,9 @@ for graph_num, n in enumerate(graph_trial_size_list):
             fixed_values = []
             for i, e in enumerate(G.edges):
                 fixed_values.append(
-                    {"u_b(e)": ip.vars[f"u_{i},b"].x, "u_c(e)": ip.vars[f"u_{i},c"].x, "u": e[0], "v": e[1]}
+                    {"u_b(e)": ip.vars[f"u_{e},b"].x, "u_c(e)": ip.vars[f"u_{e},c"].x, "Edge": e}
                 )
-            fixed_values = pd.DataFrame(fixed_values).set_index(["u", "v"])
+            fixed_values = pd.DataFrame(fixed_values) #.set_index(["u", "v"])
 
             # solve problem again with full od but fixed capacities - basically solving all-pairs min-cost flow problem
             ip_full = define_IP(
@@ -63,7 +63,7 @@ for graph_num, n in enumerate(graph_trial_size_list):
                 od_df=od_full,
                 shared_lane_factor=SHARED_LANE_FACTOR,
                 car_weight=CAR_WEIGHT,
-                fixed_values=fixed_values,
+                fixed_edges=fixed_values,
             )
             ip_full.optimize()
             new_obj_value = ip_full.objective_value
@@ -87,4 +87,4 @@ for graph_num, n in enumerate(graph_trial_size_list):
             print("\n-------------")
 
         # save in every intermediate step in case something throws an error
-        pd.DataFrame(res_df).to_csv(os.path.join(OUT_PATH, "od_dependency_new.csv"))
+        pd.DataFrame(res_df).to_csv(os.path.join(OUT_PATH, "od_dependency.csv"))

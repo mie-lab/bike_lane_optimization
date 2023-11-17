@@ -9,7 +9,7 @@ from ebike_city_tools.iterative_algorithms import topdown_betweenness_pareto, be
 CAR_WEIGHT = 1
 WEIGHT_OD_FLOW = False
 SHARED_LANE_FACTOR = 2
-OD_REDUCTION = 0.4
+OD_REDUCTION = 0.1
 SP_METHOD = "od"
 kwargs = {"weight_od_flow": WEIGHT_OD_FLOW, "sp_method": SP_METHOD}
 algorithm_dict = {
@@ -20,7 +20,7 @@ algorithm_dict = {
 OUT_PATH = "outputs/round_optimized"
 os.makedirs(OUT_PATH, exist_ok=True)
 
-OPTIMIZE_EVERY_LIST = [100, 25, 15, 10, 5]
+OPTIMIZE_EVERY_LIST = [100, 75, 50, 25, 15, 10, 5]
 graph_trial_size_list = [20, 20, 20, 20, 30, 30, 30, 30, 40, 40, 40, 40, 50, 50, 50, 50, 60, 60, 60, 60]
 
 np.random.seed(42)
@@ -56,7 +56,7 @@ if __name__ == "__main__":
     colors = plt.cm.viridis(np.linspace(0, 1, len(OPTIMIZE_EVERY_LIST)))
     cols_betweenness = ["black", "grey", "lightgrey"]
     # load data and plot for every graph trial
-    for graph_trial in range(graph_trial_size_list):
+    for graph_trial in graph_trial_size_list:
         plt.figure(figsize=(8, 5))
         for baseline, col in zip(algorithm_dict.keys(), cols_betweenness):
             pareto_front = pd.read_csv(os.path.join(OUT_PATH, f"pareto_{baseline}_{graph_trial}.csv"))
