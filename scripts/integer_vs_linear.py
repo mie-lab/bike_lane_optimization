@@ -7,7 +7,7 @@ from ebike_city_tools.synthetic import random_lane_graph, make_fake_od
 from ebike_city_tools.metrics import compute_travel_times
 from ebike_city_tools.optimize.optimizer import Optimizer
 from ebike_city_tools.utils import lane_to_street_graph, extend_od_circular
-from ebike_city_tools.optimize.round_simple import ceiled_car_graph, pareto_frontier, graph_from_integer_solution
+from ebike_city_tools.optimize.round_simple import graph_from_integer_solution
 from ebike_city_tools.optimize.round_optimized import ParetoRoundOptimize
 
 OUT_PATH = "outputs"
@@ -29,13 +29,12 @@ if __name__ == "__main__":
             # test for graphs with OD matrix of 10% of the all-pairs SP
             for od_factor in [0.1]:
                 # define graph
-                od = make_fake_od(size, od_factor * size**2, nodes=G.nodes)
+                od = make_fake_od(size, int(od_factor * size**2), nodes=G.nodes)
                 od = extend_od_circular(od, list(G_lane.nodes()))
 
                 # run for several car weights to get a pareto frontier also for the integer problem
                 for car_weight in [0.1, 0.5, 0.75, 1, 2, 4, 8]:
                     for integer_problem, name in zip([True, False], ["integer", "linear"]):
-                            
                         # transform the graph layout into travel times, including gradient and penalty factor for using
                         if integer_problem:
                             optim = Optimizer(
@@ -79,10 +78,9 @@ if __name__ == "__main__":
                                 car_weight=car_weight,
                                 sp_method=SP_METHOD,
                                 shared_lane_factor=shared_lane_factor,
-                                return_list=True,
                                 weight_od_flow=WEIGHT_OD_FLOW,
                             )
-                            res_dict_list = opt.pareto()
+                            res_dict_list = opt.pareto(return_list=True)
                         # add general infos to integer or linear (pareto) solution
                         for r in res_dict_list:
                             r.update(
