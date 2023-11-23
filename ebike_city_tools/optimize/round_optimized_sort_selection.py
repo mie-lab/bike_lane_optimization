@@ -13,32 +13,40 @@ from ebike_city_tools.utils import (
     output_to_dataframe,
 )
 from ebike_city_tools.iterative_algorithms import transform_car_to_bike_edge
-from ebike_city_tools.optimize.rounding_utils import result_to_streets, undirected_to_directed
 from ebike_city_tools.metrics import compute_travel_times_in_graph
 
 FLOW_CONSTANT = 1
 
 def sort_by_bikevalue(capacities) :
+    """Sorts the capacities by planned bike capacity, with ties broken by car capacity."""
     return capacities.sort_values(["u_b(e)", "u_c(e)"], ascending=[False, True])
 
 def rounding_error(fractional_value):
+    """Given a fractional value, returns the distance to the closest integer."""
     next_int = round(fractional_value)
+    if fractional_value >= 0:
+        return 0
     return abs(next_int - fractional_value)
 
 def rounding_error_of_row(row):
+    """Auxiliary funtion determining the rounding error of the car capacity."""
     return rounding_error(row["u_c(e)"]) #+ rounding_error(row["u_c(e)_reversed"])
 
 def round_row(row):
+    """Given a row, this function returns the row obtained by rounding the car and bike capacities."""
     # print(row)
-    rounded_by = row["u_c(e)"] - round(row["u_c(e)"])
-    row["u_c(e)"] = round(row["u_c(e)"])
+    new_value = min(1, round(row["u_c(e)"]))
+    # new_value = round(row["u_c(e)"])
+    rounded_by = row["u_c(e)"] - new_value
+    row["u_c(e)"] = new_value
     row["u_b(e)"] = row["u_b(e)"] + rounded_by
     return row
 
 def sort_by_rounding_error(capacities) :
+    """Sorts the capacities by increasing rounding error of the car capacity."""
     cap_with_rounding_error = capacities
     cap_with_rounding_error["rounding_error"] = capacities.apply(rounding_error_of_row, axis=1)
-    sorted_cap = cap_with_rounding_error.sort_values(["rounding_error", "u_b(e)"], ascending=[True, True])
+    sorted_cap = cap_with_rounding_error.sort_values(["rounding_error", "u_b(e)"], ascending=[True, False])
     sorted_cap = sorted_cap.apply(round_row, axis = 1)
     return sorted_cap.drop(['rounding_error'], axis=1)
 
@@ -113,7 +121,7 @@ class ParetoRoundOptimizeSortSelect:
         # iteratively add edges
         found_edge = True
 
-        def try_fixing_edge_as_bike(edge) :
+        def try_fixing_edge_as_bike(edge_to_transform) :
             """Tries to fix the edge as a bike lane. If this destroys strong connectivity, we return False, else
             return True and remove the edge from car_graph"""
             car_graph.remove_edge(*edge_to_transform)
@@ -127,14 +135,11 @@ class ParetoRoundOptimizeSortSelect:
             if edges_removed % self.optimize_every_x == 0:
                 # Run optimization
                 capacities = self.optimize(fixed_capacities)
-                # sort capacities by bike and car capacities -> first consider the ones with high bike and low car capacity
-                # if self.rounding_method == "lowest_rounding_error":
-                #     cap_combined = result_to_streets(capacities)
+                # sort capacities by specified method.
                 match self.rounding_method:
                     case "highest_bike_value":
                         cap_sorted = sort_by_bikevalue(capacities)
                     case "lowest_rounding_error":
-                        # cap_sorted = sort_by_rounding_error(cap_combined)
                         cap_sorted = sort_by_rounding_error(capacities)
             found_edge = False
             # iterate over capacities until we find an edge that can be added
@@ -148,8 +153,8 @@ class ParetoRoundOptimizeSortSelect:
                 # iterate over the lanes of this edge and try to find one that can be converted
                 for key in list(dict(G_lane[e[0]][e[1]])):
                     edge_to_transform = (e[0], e[1], key)
+                    #If we rounded the car capacities, we want to guarantee at least this ammount of car lanes.
                     if self.rounding_method == "lowest_rounding_error" and num_fixed_cars < row["u_c(e)"]:
-                        print("?")
                         num_fixed_cars += 1
                         is_fixed_car[edge_to_transform] = True
                         continue
