@@ -9,6 +9,7 @@ def define_IP(
     G,
     edges_bike_list=None,
     edges_car_list=None,
+    valid_edges_per_od_pair=None,
     fixed_edges=pd.DataFrame(),
     cap_factor=1,
     only_double_bikelanes=True,
@@ -49,14 +50,9 @@ def define_IP(
 
     # edge list where at least one of the capacities (bike or car) has not been fixed
     edge_list = list(G.edges)
-    # print(edge_list)
-    # print(fixed_edges.shape)
     fixed_edge_list = []
     if fixed_edges.shape[1] > 0:
-        # print(fixed_edges)
         fixed_edge_list = fixed_edges["Edge"].values.tolist()
-        # print("Fixed Edges")
-        # print(fixed_edge_list)
 
     if edges_bike_list is None:
         edges_bike_list = list(set(edge_list) - set(fixed_edge_list))
@@ -76,6 +72,15 @@ def define_IP(
         # for now, just extract s t columns and ignore how much flow
         od_flow = od_df[["s", "t"]].values
 
+    # If there are no arc restrictions specified, all arcs are feasible to take.
+    #TODO we might want to change this, such that we do not save the edge_list multiple times.
+    # this could for example be done by using a function that evaluates valid_edges_per_od_pair or else returns
+    # edge_list.
+    if valid_edges_per_od_pair is None:
+        valid_edges_per_od_pair = {}
+        for (s,t) in od_df[["s", "t"]].values:
+            valid_edges_per_od_pair[(s,t)]=edge_list
+
     # if desired, we weight the terms in the objective function by the flow in the OD matrix
     if weight_od_flow:
         assert od_df is not None, "if weight_od_flow=True, an OD matrix must be provided!"
@@ -89,7 +94,7 @@ def define_IP(
     else:
         od_weighting = np.ones(len(od_flow))
 
-    print(f"Number of flow variables: {len(od_flow) * number_edges} ({number_edges} edges and {len(od_flow)} OD pairs)")
+    print(f"Theoretical number of flow variables: {len(od_flow) * number_edges} ({number_edges} edges and {len(od_flow)} OD pairs)")
 
     capacities = nx.get_edge_attributes(G, "capacity")
     distance = nx.get_edge_attributes(G, "distance")
@@ -111,15 +116,15 @@ def define_IP(
     # flow variables
 
     var_f_car = [
-        [streetIP.add_var(name=f"f_{s},{t},{e},c", lb=0, var_type=var_type) for e in edge_list] for (s, t) in od_flow
+        [streetIP.add_var(name=f"f_{s},{t},{e},c", lb=0, var_type=var_type) for e in valid_edges_per_od_pair[(s,t)]] for (s, t) in od_flow
     ]
     var_f_bike = [
-        [streetIP.add_var(name=f"f_{s},{t},{e},b", lb=0, var_type=var_type) for e in edge_list] for (s, t) in od_flow
+        [streetIP.add_var(name=f"f_{s},{t},{e},b", lb=0, var_type=var_type) for e in valid_edges_per_od_pair[(s,t)]] for (s, t) in od_flow
     ]
     if shared_lane_variables:
         # if allowing for shared lane usage between cars and bike, set additional variables
         var_f_shared = [
-            [streetIP.add_var(name=f"f_{s},{t},{e},s", lb=0, var_type=var_type) for e in edge_list]
+            [streetIP.add_var(name=f"f_{s},{t},{e},s", lb=0, var_type=var_type) for e in valid_edges_per_od_pair[(s,t)]]
             for (s, t) in od_flow
         ]
     # capacity variables
@@ -128,13 +133,28 @@ def define_IP(
 
     # functions to call the variables
     def f_car(od_ind, e):
-        return var_f_car[od_ind][edge_list.index(e)]
+        s = od_flow[od_ind][0]
+        t = od_flow[od_ind][1]
+        if e in valid_edges_per_od_pair[(s,t)]:
+            return var_f_car[od_ind][edge_list.index(e)]
+        else:
+            return 0
 
     def f_bike(od_ind, e):
-        return var_f_bike[od_ind][edge_list.index(e)]
+        s = od_flow[od_ind][0]
+        t = od_flow[od_ind][1]
+        if e in valid_edges_per_od_pair[(s,t)]:
+            return var_f_bike[od_ind][edge_list.index(e)]
+        else:
+            return 0
 
     def f_shared(od_ind, e):
-        return var_f_shared[od_ind][edge_list.index(e)]
+        s = od_flow[od_ind][0]
+        t = od_flow[od_ind][1]
+        if e in valid_edges_per_od_pair[(s,t)]:
+            return var_f_shared[od_ind][edge_list.index(e)]
+        else:
+            return 0
 
     def u_b(e):
         if e in fixed_edge_list:
@@ -210,6 +230,9 @@ def define_IP(
             u_b((head, tail)) / 2 + u_c((head, tail)) + u_c((tail, head)) + u_b((tail, head)) / 2
             <= capacities[(head, tail)] * cap_factor
         )
+
+    print("Total number of variables: " + str(streetIP.num_cols))
+    print("Total number of constraints: " + str(streetIP.num_rows))
 
     # Objective value
     objective_bike = mip.xsum(
