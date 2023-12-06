@@ -73,7 +73,7 @@ def define_IP(
         od_flow = od_df[["s", "t"]].values
 
     # If there are no arc restrictions specified, all arcs are feasible to take.
-    #TODO we might want to change this, such that we do not save the edge_list multiple times.
+    # TODO we might want to change this, such that we do not save the edge_list multiple times.
     # this could for example be done by using a function that evaluates valid_edges_per_od_pair or else returns
     # edge_list.
     if valid_edges_per_od_pair is None:
@@ -136,7 +136,7 @@ def define_IP(
         s = od_flow[od_ind][0]
         t = od_flow[od_ind][1]
         if e in valid_edges_per_od_pair[(s,t)]:
-            return var_f_car[od_ind][edge_list.index(e)]
+            return var_f_car[od_ind][valid_edges_per_od_pair[(s,t)].index(e)]
         else:
             return 0
 
@@ -144,7 +144,7 @@ def define_IP(
         s = od_flow[od_ind][0]
         t = od_flow[od_ind][1]
         if e in valid_edges_per_od_pair[(s,t)]:
-            return var_f_bike[od_ind][edge_list.index(e)]
+            return var_f_bike[od_ind][valid_edges_per_od_pair[(s,t)].index(e)]
         else:
             return 0
 
@@ -152,7 +152,7 @@ def define_IP(
         s = od_flow[od_ind][0]
         t = od_flow[od_ind][1]
         if e in valid_edges_per_od_pair[(s,t)]:
-            return var_f_shared[od_ind][edge_list.index(e)]
+            return var_f_shared[od_ind][valid_edges_per_od_pair[(s,t)].index(e)]
         else:
             return 0
 
@@ -208,7 +208,8 @@ def define_IP(
 
     # # Capacity constraints - V1
     for od_ind in range(len(od_flow)):
-        for e in G.edges:
+        (s,t) = od_flow[od_ind]
+        for e in valid_edges_per_od_pair[(s,t)]:
             streetIP += f_bike(od_ind, e) <= u_b(e)  # still not the sum of flows
             streetIP += f_car(od_ind, e) <= u_c(e)
     # # Capacity constraints - V2 (using the sum of flows)

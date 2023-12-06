@@ -50,8 +50,45 @@ def sort_by_rounding_error(capacities) :
     sorted_cap = sorted_cap.apply(round_row, axis = 1)
     return sorted_cap.drop(['rounding_error'], axis=1)
 
+def determine_valid_arcs(od_pairs, graph, number_of_paths=3) :
+    """Given a graph, a pair of vertices (s,t) and a specified number of paths to be specified, this returns
+        the arcs that lie on one of the number_of_paths shortest s-t-paths."""
+   
+    output = {}
+    od_pairs_as_pairs = list(zip(od_pairs['s'], od_pairs['t']))
+    for od_pair in od_pairs_as_pairs:
+        vertices = determine_vertices_on_shortest_paths(od_pair, graph, number_of_paths)
+        arcs = determine_arcs_between_vertices(graph, vertices)
+        output[od_pair] = arcs
+    return output
+
+def determine_vertices_on_shortest_paths(od_pair, graph, number_of_paths):
+    """Auxiliary routine to extract the vertices lying on the shortest path for the given od_pair."""
+    graph_copy = graph.copy()
+    s = od_pair[0]
+    t = od_pair[1]
+    vertices_on_shortest_paths = set()
+    for _ in range(number_of_paths):
+        try:
+            path = nx.shortest_path(graph_copy, s, t, "bike_travel_time")
+        except nx.exception.NetworkXNoPath:
+            break
+        vertices_on_shortest_paths.update(path)
+        shortend_path = list(path[1:-1])
+        graph_copy.remove_nodes_from(shortend_path)
+    return vertices_on_shortest_paths
+
+def determine_arcs_between_vertices(graph, vertices):
+    """Auxiliary routine that returns all arcs in the graph, that have both endpoints in the specified vertex set."""
+    valid_arcs = []
+    for arc in graph.edges():
+        if (arc[0] in vertices and arc[1] in vertices) :
+            valid_arcs.append(arc)
+    return list(set(valid_arcs))
+
+
 class ParetoRoundOptimizeSortSelect:
-    def __init__(self, G_lane, od, rounding_method = "highest_bike_value", sp_method="od", optimize_every_x=5, **kwargs):
+    def __init__(self, G_lane, od, number_shortest_path_for_pruning = 0, rounding_method = "highest_bike_value", sp_method="od", optimize_every_x=5, **kwargs):
         """
         kwargs: Potential keyword arguments to be passed to the LP function
         rounding_method: Specifies, how edges are selected for the rounding. Possible selections are:
@@ -63,17 +100,28 @@ class ParetoRoundOptimizeSortSelect:
         self.G_lane = G_lane
         self.sp_method = sp_method
         self.optimize_every_x = optimize_every_x
+        self.valid_arcs = None
+        self.number_shortest_path_for_pruning = number_shortest_path_for_pruning
         self.optimize_kwargs = kwargs
         self.shared_lane_factor = self.optimize_kwargs.get("shared_lane_factor", 2)
 
         # transform to street graph
         self.G_street = lane_to_street_graph(G_lane)
 
+    def set_valid_arcs(self):
+        if self.valid_arcs is None and self.number_shortest_path_for_pruning > 0:
+            od = self.od
+            graph = self.G_lane
+            self.valid_arcs = determine_valid_arcs(od, graph, self.number_shortest_path_for_pruning)
+        return self.valid_arcs
+
+
     def optimize(self, fixed_capacities):
         """
         Returns: newly optimized capacities
         """
-        ip = define_IP(self.G_street, od_df=self.od, fixed_edges=fixed_capacities, **self.optimize_kwargs)
+        self.set_valid_arcs()
+        ip = define_IP(self.G_street,valid_edges_per_od_pair=self.valid_arcs, od_df=self.od, fixed_edges=fixed_capacities, **self.optimize_kwargs)
         ip.verbose = False
         ip.optimize()
         return output_to_dataframe(ip, self.G_street, fixed_edges=fixed_capacities)
