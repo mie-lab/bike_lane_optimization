@@ -11,10 +11,11 @@ def get_city_coords(n=20):
     return coords.astype(int)
 
 
-def make_fake_od(n, nr_routes, nodes=None):
-    od = pd.DataFrame()
-    od["s"] = (np.random.rand(nr_routes) * n).astype(int)
-    od["t"] = (np.random.rand(nr_routes) * n).astype(int)
+def make_fake_od(n, nr_routes, nodes=None)
+    possible_pairs = np.array([[i, j] for i in range(n) for j in range(n) if i != j])
+    selected_pair_inds = np.random.choice(np.arange(len(possible_pairs)), size=nr_routes, replace=False)
+    selected_pairs = possible_pairs[selected_pair_inds]
+    od = pd.DataFrame(selected_pairs, columns=["s", "t"])
     od["trips_per_day"] = (np.random.rand(nr_routes) * 5).astype(int)
     od = od[od["s"] != od["t"]].drop_duplicates(subset=["s", "t"])
 
@@ -46,7 +47,7 @@ def random_lane_graph(n=20, neighbor_choices=[2, 3, 4], neighbor_p=[0.6, 0.3, 0.
     edge_list = []
     for i, node_coords in enumerate(coords):
         neighbor_distances = np.linalg.norm(coords[:, :2] - node_coords[:2], axis=1)
-        neighbor_distances[i] = 1000000
+        neighbor_distances[neighbor_distances == 0] = 100000
         neighbor_probs = 1 / neighbor_distances**2
         neighbor_probs = neighbor_probs / np.sum(neighbor_probs)
         # nr_neighbors = max(min_neighbors, round(np.random.normal(2, 2)))
