@@ -79,7 +79,7 @@ def lane_optimization(L, od_df=None, edge_fraction=0.4, shared_lane_factor=2, ve
         od = od_df.copy()
     else:
         # Initialize od with empty dataframe
-        od = pd.DataFrame(columns=["s", "t", "trips_per_day"])
+        od = pd.DataFrame(columns=["s", "t", "trips"])
     # reduce OD matrix to nodes that are in G_lane
     node_list = list(G_lane.nodes())
     od = od[(od["s"].isin(node_list)) & (od["t"].isin(node_list))]

@@ -79,10 +79,10 @@ def define_IP(
     # if desired, we weight the terms in the objective function by the flow in the OD matrix
     if weight_od_flow:
         assert od_df is not None, "if weight_od_flow=True, an OD matrix must be provided!"
-        od_weighting = od_df["trips_per_day"].values
+        od_weighting = od_df["trips"].values
     elif od_df is not None:
         # don't weight by the flow, but still keep the values for auxiliary OD-pairs at zero
-        od_weighting = (od_df["trips_per_day"].values > 0).astype(int)
+        od_weighting = (od_df["trips"].values > 0).astype(int)
         # prevent them from being all zero
         if np.all(od_weighting == 0):
             od_weighting = np.ones(len(od_weighting))

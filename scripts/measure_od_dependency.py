@@ -26,7 +26,7 @@ for graph_num, n in enumerate(graph_trial_size_list):
 
     # full od matrix
     od_full = pd.DataFrame(np.array([[i, j] for i in range(n) for j in range(n)]), columns=["s", "t"])
-    od_full["trips_per_day"] = 1
+    od_full["trips"] = 1
 
     # run several times to remove different parts from the OD matrix
     for i, trial in enumerate(range(nr_trials_per_graph)):
@@ -51,10 +51,8 @@ for graph_num, n in enumerate(graph_trial_size_list):
             # get capacities -> they are fixed from now on
             fixed_values = []
             for i, e in enumerate(G.edges):
-                fixed_values.append(
-                    {"u_b(e)": ip.vars[f"u_{e},b"].x, "u_c(e)": ip.vars[f"u_{e},c"].x, "Edge": e}
-                )
-            fixed_values = pd.DataFrame(fixed_values) #.set_index(["u", "v"])
+                fixed_values.append({"u_b(e)": ip.vars[f"u_{e},b"].x, "u_c(e)": ip.vars[f"u_{e},c"].x, "Edge": e})
+            fixed_values = pd.DataFrame(fixed_values)  # .set_index(["u", "v"])
 
             # solve problem again with full od but fixed capacities - basically solving all-pairs min-cost flow problem
             ip_full = define_IP(

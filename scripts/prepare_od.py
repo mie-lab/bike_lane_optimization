@@ -75,5 +75,5 @@ nearest_nodes = nearest_nodes[
 # nearest_nodes.to_csv(os.path.join(path, "trips_node_ids.csv"))
 
 od_matrix = nearest_nodes.groupby(["osmid_origin", "osmid_destination"])["person_id"].count()
-od_matrix = od_matrix.reset_index().rename({"person_id": "trips_per_day"}, axis=1)
+od_matrix = od_matrix.reset_index().rename({"person_id": "trips"}, axis=1)
 od_matrix.to_csv(os.path.join(path, "od_matrix.csv"), index=False)
