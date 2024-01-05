@@ -18,7 +18,7 @@ from ebike_city_tools.optimize.round_optimized import ParetoRoundOptimize
 import numpy as np
 import geopandas as gpd
 import networkx as nx
-from snman import distribution, street_graph, graph_utils, io, merge_edges, lane_graph
+from snman import distribution, street_graph, graph, io, merge_edges, lane_graph
 from snman.constants import (
     KEY_LANES_DESCRIPTION,
     KEY_LANES_DESCRIPTION_AFTER,
@@ -60,7 +60,7 @@ def generate_motorized_lane_graph(
     # make lane graph
     L = lane_graph.create_lane_graph(H, KEY_GIVEN_LANES_DESCRIPTION)
     # make sure that the graph is strongly connected
-    L = graph_utils.keep_only_the_largest_connected_component(L)
+    L = graph.keep_only_the_largest_connected_component(L)
     # add some edge attributes that we need for the optimization (e.g. slope)
     L = adapt_edge_attributes(L, ignore_fixed=IGNORE_FIXED)
     if return_H:
@@ -194,6 +194,8 @@ if __name__ == "__main__":
                 edge_df = nx.to_pandas_edgelist(G_lane_output, edge_key="edge_key")
                 edge_df.to_csv(os.path.join(out_path, "graph_edges.csv"), index=False)
                 exit()
+            else:
+                pareto_df = opt.pareto()
 
             print("Time pareto", time.time() - tic)
             runtimes_pareto.append(time.time() - tic)

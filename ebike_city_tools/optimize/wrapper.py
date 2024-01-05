@@ -29,13 +29,13 @@ def adapt_edge_attributes(L: nx.MultiDiGraph, ignore_fixed=False):
         nx.set_edge_attributes(L, False, "fixed")
 
     # add gradient attribute
-    elevation_dict = nx.get_node_attributes(L, "elevation")
+    elevation_dict = nx.get_node_attributes(L, "elevation")  # can be empty, than flat assumed
     length_dict = nx.get_edge_attributes(L, "length")
     gradient_attr, speed_limit_attr = {}, {}
     # isna = 0
     for e in L.edges:
         (u, v, _) = e  # TODO: remove loops
-        gradient_attr[e] = 100 * (elevation_dict[v] - elevation_dict[u]) / length_dict[e]
+        gradient_attr[e] = 100 * (elevation_dict.get(v, 0) - elevation_dict.get(u, 0)) / length_dict[e]
         # Old version for speed limit (from G instead of L)
         # set speed limit attribute
         # if (u, v, 0) in maxspeed.keys():
