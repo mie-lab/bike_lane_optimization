@@ -30,7 +30,7 @@ ROUNDING_METHOD = "round_bike_optimize"
 IGNORE_FIXED = True
 FLOW_CONSTANT = 1  # how much flow to send through a path
 WEIGHT_OD_FLOW = False
-OPTIMIZE_EVERY_K = 10
+OPTIMIZE_EVERY_K = 50
 RATIO_BIKE_EDGES = 0.4
 algorithm_dict = {
     "betweenness_topdown": (topdown_betweenness_pareto, {}),
@@ -76,6 +76,7 @@ if __name__ == "__main__":
     parser.add_argument("-i", "--instance", default="affoltern", type=str)
     parser.add_argument("-o", "--out_path", default="outputs", type=str)
     parser.add_argument("-q", "--quantile_od", default=0, help="quantile of OD matrix used")
+    parser.add_argument("-c", "--car_weight", default=1, help="weighting of cars in objective function")
     parser.add_argument(
         "-p", "--penalty_shared", default=2, type=int, help="penalty factor for driving on a car lane by bike"
     )
@@ -95,7 +96,7 @@ if __name__ == "__main__":
     instance_name = args.instance
     path = os.path.join(args.data_path, instance_name)
     shared_lane_factor = args.penalty_shared  # how much to penalize biking on car lanes
-    out_path = args.out_path
+    out_path = os.path.join(args.out_path, args.instance)
     sp_method = args.sp_method
     algorithm = args.algorithm
     quantile_od = args.quantile_od
@@ -146,7 +147,7 @@ if __name__ == "__main__":
 
     # tune the car_weight
     runtimes_pareto = []
-    for car_weight in [1]:  # [0.1, 0.25, 0.5, 0.75] + list(np.arange(1, 10)):
+    for car_weight in [args.car_weight]:  # [0.1, 0.25, 0.5, 1, 2, 4, 8]:
         print(f"Running LP for pareto frontier (car weight={car_weight})...")
         if ROUNDING_METHOD == "round_simple":
             tic = time.time()
