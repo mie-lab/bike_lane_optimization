@@ -11,7 +11,7 @@ def get_city_coords(n=20):
     return coords.astype(int)
 
 
-def make_fake_od(n, nr_routes, nodes=None)
+def make_fake_od(n, nr_routes, nodes=None):
     possible_pairs = np.array([[i, j] for i in range(n) for j in range(n) if i != j])
     selected_pair_inds = np.random.choice(np.arange(len(possible_pairs)), size=nr_routes, replace=False)
     selected_pairs = possible_pairs[selected_pair_inds]

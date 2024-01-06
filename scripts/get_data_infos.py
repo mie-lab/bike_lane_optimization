@@ -1,0 +1,39 @@
+import os
+import numpy as np
+import pandas as pd
+
+from ebike_city_tools.utils import extend_od_circular
+from run_real_data import generate_motorized_lane_graph
+
+if __name__ == "__main__":
+    res = []
+    for city in ["affoltern", "birchplatz", "cambridge", "chicago"]:
+        path = os.path.join("..", "street_network_data", city)
+        np.random.seed(42)  # random seed for extending the od matrix
+        # generate lane graph with snman
+        G_lane = generate_motorized_lane_graph(
+            os.path.join(path, "edges_all_attributes.gpkg"), os.path.join(path, "nodes_all_attributes.gpkg")
+        )
+
+        # load OD
+        od = pd.read_csv(os.path.join(path, "od_matrix.csv"))
+        od.rename({"osmid_origin": "s", "osmid_destination": "t"}, inplace=True, axis=1)
+        od = od[od["s"] != od["t"]]
+        # reduce OD matrix to nodes that are in G_lane
+        node_list = list(G_lane.nodes())
+        od = od[(od["s"].isin(node_list)) & (od["t"].isin(node_list))]
+        od_size_before_extend = len(od)
+
+        od = extend_od_circular(od, node_list)
+
+        res.append(
+            {
+                "name": city,
+                "nodes": G_lane.number_of_nodes(),
+                "edges": G_lane.number_of_edges(),
+                "od": od_size_before_extend,
+                "od_after_extend": len(od),
+            }
+        )
+    res = pd.DataFrame(res)
+    res.to_csv("figures/data_info.csv", index=False)
