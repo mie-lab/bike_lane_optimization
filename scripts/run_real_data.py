@@ -147,7 +147,7 @@ if __name__ == "__main__":
 
     # tune the car_weight
     runtimes_pareto = []
-    for car_weight in [args.car_weight]:  # [0.1, 0.25, 0.5, 1, 2, 4, 8]:
+    for car_weight in [float(args.car_weight)]:  # [0.1, 0.25, 0.5, 1, 2, 4, 8]:
         print(f"Running LP for pareto frontier (car weight={car_weight})...")
         if ROUNDING_METHOD == "round_simple":
             tic = time.time()
