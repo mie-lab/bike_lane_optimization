@@ -21,17 +21,6 @@ def sort_by_bikevalue(capacities) :
     """Sorts the capacities by planned bike capacity, with ties broken by car capacity."""
     return capacities.sort_values(["u_b(e)", "u_c(e)"], ascending=[False, True])
 
-def rounding_error(fractional_value):
-    """Given a fractional value, returns the distance to the closest integer."""
-    next_int = round(fractional_value)
-    if fractional_value >= 0:
-        return 0
-    return abs(next_int - fractional_value)
-
-def rounding_error_of_row(row):
-    """Auxiliary funtion determining the rounding error of the car capacity."""
-    return rounding_error(row["u_c(e)"]) #+ rounding_error(row["u_c(e)_reversed"])
-
 def round_row(row):
     """Given a row, this function returns the row obtained by rounding the car and bike capacities."""
     # print(row)
@@ -45,10 +34,15 @@ def round_row(row):
 def sort_by_rounding_error(capacities) :
     """Sorts the capacities by increasing rounding error of the car capacity."""
     cap_with_rounding_error = capacities
-    cap_with_rounding_error["rounding_error"] = capacities.apply(rounding_error_of_row, axis=1)
+    # round car capacity to at most 1
+    capacities["rounded_car"] = capacities["u_c(e)"].round().clip(upper=1)
+    # get distance to the closest integer
+    cap_with_rounding_error["rounding_error"] = (capacities["u_c(e)"] - capacities["rounded_car"]).abs()
+
+    # sort by rounding error and bike capacity
     sorted_cap = cap_with_rounding_error.sort_values(["rounding_error", "u_b(e)"], ascending=[True, False])
     sorted_cap = sorted_cap.apply(round_row, axis = 1)
-    return sorted_cap.drop(['rounding_error'], axis=1)
+    return sorted_cap.drop(['rounded_car', 'rounding_error'], axis=1)
 
 def determine_valid_arcs(od_pairs, graph, number_of_paths=3) :
     """Given a graph, a pair of vertices (s,t) and a specified number of paths to be specified, this returns

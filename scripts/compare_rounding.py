@@ -26,10 +26,10 @@ algorithm_dict = {
 
 NUMBER_PATHS_FOR_PRUNING = [0, 1, 2, 3, 4, 10]
 ROUNDING_METHOD = [
-        "lowest_rounding_error", 
-        # "highest_bike_value", 
-        # "bike_value"
-        ]
+    "lowest_rounding_error",
+    # "highest_bike_value",
+    # "bike_value"
+]
 OPTIMIZE_EVERY_LIST = [100, 50, 25, 10, 5]
 CAR_WEIGHT_LIST = [0.1, 0.5, 1, 2, 4, 8]
 graph_trial_size_list = [20, 20, 20, 20, 30, 30, 30, 30, 40, 40, 40, 40, 50, 50, 50, 50, 60, 60, 60, 60]
@@ -61,19 +61,32 @@ if __name__ == "__main__":
             for car_weight in CAR_WEIGHT_LIST:
                 for rounding_method in ROUNDING_METHOD:
                     for number_paths in NUMBER_PATHS_FOR_PRUNING:
-                        if rounding_method == "bike_value
+                        if rounding_method == "bike_value":
                             opt = ParetoRoundOptimize(
-                                G_lane.copy(), od.copy(), optimize_every_x=optimize_every, car_weight=car_weight, **kwargs
+                                G_lane.copy(),
+                                od.copy(),
+                                optimize_every_x=optimize_every,
+                                car_weight=car_weight,
+                                **kwargs,
                             )
                             break  # for bike_value method we don't need the number_paths argument, so we stop
                         else:
                             opt = ParetoRoundOptimizeSortSelect(
-                                G_lane.copy(), od.copy(), number_shortest_path_for_pruning = number_paths, rounding_method = rounding_method, optimize_every_x=optimize_every, car_weight=car_weight, **kwargs
+                                G_lane.copy(),
+                                od.copy(),
+                                number_shortest_path_for_pruning=number_paths,
+                                rounding_method=rounding_method,
+                                optimize_every_x=optimize_every,
+                                car_weight=car_weight,
+                                **kwargs,
                             )
                         pareto_front = opt.pareto()
                         optimize_every_name = "none" if trial == 0 else optimize_every
                         pareto_front.to_csv(
-                            os.path.join(OUT_PATH, f"pareto_optimize_{graph_trial}_{car_weight}_{optimize_every_name}_{number_paths}_{rounding_method}.csv")
+                            os.path.join(
+                                OUT_PATH,
+                                f"pareto_optimize_{graph_trial}_{car_weight}_{optimize_every_name}_{number_paths}_{rounding_method}.csv",
+                            )
                         )
 
     # -------- PLOTTING -------------
@@ -82,7 +95,7 @@ if __name__ == "__main__":
     if PLOTTING:
         colors = plt.cm.viridis(np.linspace(0, 1, len(OPTIMIZE_EVERY_LIST)))  # len(NUMBER_PATHS_FOR_PRUNING)
         cols_betweenness = ["black", "grey", "lightgrey"]
-        styles = ['-', '--', '-.']
+        styles = ["-", "--", "-."]
         # load data and plot for every graph trial
         for graph_trial in graph_trial_size_list:
             plt.figure(figsize=(8, 5))
@@ -95,14 +108,17 @@ if __name__ == "__main__":
                     for k, number_paths in enumerate(NUMBER_PATHS_FOR_PRUNING):
                         for car_weight in CAR_WEIGHT_LIST:
                             pareto_front = pd.read_csv(
-                                os.path.join(OUT_PATH, f"pareto_optimize_{graph_trial}_{car_weight}_{optimize_every}_{number_paths}_{rounding_method}.csv")
+                                os.path.join(
+                                    OUT_PATH,
+                                    f"pareto_optimize_{graph_trial}_{car_weight}_{optimize_every}_{number_paths}_{rounding_method}.csv",
+                                )
                             )
                             plt.plot(
                                 pareto_front["bike_time"],
                                 pareto_front["car_time"],
                                 label=f"{optimize_every}-{car_weight}-{number_paths}-{rounding_method}",
                                 c=colors[i],
-                                ls=styles[j]
+                                ls=styles[j],
                             )
 
             plt.xlabel("bike travel time")
