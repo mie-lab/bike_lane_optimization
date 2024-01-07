@@ -18,7 +18,7 @@ from ebike_city_tools.optimize.round_optimized import ParetoRoundOptimize
 import numpy as np
 import geopandas as gpd
 import networkx as nx
-from snman import distribution, street_graph, graph_utils, io, merge_edges, lane_graph
+from snman import distribution, street_graph, graph, io, merge_edges, lane_graph
 from snman.constants import (
     KEY_LANES_DESCRIPTION,
     KEY_LANES_DESCRIPTION_AFTER,
@@ -30,13 +30,15 @@ ROUNDING_METHOD = "round_bike_optimize"
 IGNORE_FIXED = True
 FLOW_CONSTANT = 1  # how much flow to send through a path
 WEIGHT_OD_FLOW = False
-OPTIMIZE_EVERY_K = 10
-NUM_BIKE_EDGES = 120
+OPTIMIZE_EVERY_K = 50
+RATIO_BIKE_EDGES = 0.4
 algorithm_dict = {
     "betweenness_topdown": (topdown_betweenness_pareto, {}),
     "betweenness_cartime": (betweenness_pareto, {"betweenness_attr": "car_time"}),
     "betweenness_biketime": (betweenness_pareto, {"betweenness_attr": "bike_time"}),
 }
+
+od_quantile_used = {"chicago": 0.9, "cambridge": 0.5}  # set this with the final parameters
 
 
 def generate_motorized_lane_graph(
@@ -60,7 +62,7 @@ def generate_motorized_lane_graph(
     # make lane graph
     L = lane_graph.create_lane_graph(H, KEY_GIVEN_LANES_DESCRIPTION)
     # make sure that the graph is strongly connected
-    L = graph_utils.keep_only_the_largest_connected_component(L)
+    L = graph.keep_only_the_largest_connected_component(L)
     # add some edge attributes that we need for the optimization (e.g. slope)
     L = adapt_edge_attributes(L, ignore_fixed=IGNORE_FIXED)
     if return_H:
@@ -71,7 +73,10 @@ def generate_motorized_lane_graph(
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("-d", "--data_path", default="../street_network_data/zollikerberg", type=str)
+    parser.add_argument("-i", "--instance", default="affoltern", type=str)
     parser.add_argument("-o", "--out_path", default="outputs", type=str)
+    parser.add_argument("-q", "--quantile_od", default=0, help="quantile of OD matrix used")
+    parser.add_argument("-c", "--car_weight", default=1, help="weighting of cars in objective function")
     parser.add_argument(
         "-p", "--penalty_shared", default=2, type=int, help="penalty factor for driving on a car lane by bike"
     )
@@ -88,11 +93,13 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    path = args.data_path
+    instance_name = args.instance
+    path = os.path.join(args.data_path, instance_name)
     shared_lane_factor = args.penalty_shared  # how much to penalize biking on car lanes
-    out_path = args.out_path
+    out_path = os.path.join(args.out_path, args.instance)
     sp_method = args.sp_method
     algorithm = args.algorithm
+    quantile_od = args.quantile_od
     assert algorithm in ["optimize", "betweenness_topdown", "betweenness_cartime", "betweenness_biketime"]
     out_path_ending = "_od" if sp_method == "od" else ""
     os.makedirs(out_path, exist_ok=True)
@@ -105,7 +112,8 @@ if __name__ == "__main__":
 
     # load OD
     od = pd.read_csv(os.path.join(path, "od_matrix.csv"))
-    od.rename({"osmid_origin": "s", "osmid_destination": "t"}, inplace=True, axis=1)
+    if quantile_od > 0:
+        od = od[od["trips"] >= np.quantile(od["trips"], quantile_od)]
     od = od[od["s"] != od["t"]]
     # reduce OD matrix to nodes that are in G_lane
     node_list = list(G_lane.nodes())
@@ -139,7 +147,7 @@ if __name__ == "__main__":
 
     # tune the car_weight
     runtimes_pareto = []
-    for car_weight in [0.1, 0.25, 0.5, 0.75] + list(np.arange(1, 10)):
+    for car_weight in [float(args.car_weight)]:  # [0.1, 0.25, 0.5, 1, 2, 4, 8]:
         print(f"Running LP for pareto frontier (car weight={car_weight})...")
         if ROUNDING_METHOD == "round_simple":
             tic = time.time()
@@ -156,6 +164,7 @@ if __name__ == "__main__":
             toc = time.time()
             ip.optimize()
             toc2 = time.time()
+            print("Time optimize", time.time() - tic)
 
             # nx.write_gpickle(G, "outputs/real_G.gpickle")
             capacity_values = output_to_dataframe(ip, G_street)
@@ -170,12 +179,14 @@ if __name__ == "__main__":
             )
 
             if args.save_graph:
-                bike_G, car_G = rounding_and_splitting(capacity_values, bike_edges_to_add=NUM_BIKE_EDGES)
+                # set desired number of bike ed
+                num_bike_edges = int(RATIO_BIKE_EDGES * G_lane.number_of_edges())
+                bike_G, car_G = rounding_and_splitting(capacity_values, bike_edges_to_add=num_bike_edges)
                 G_lane_output = output_lane_graph(G_lane, bike_G, car_G, shared_lane_factor)
                 edge_df = nx.to_pandas_edgelist(G_lane_output, edge_key="edge_key")
                 edge_df.to_csv(os.path.join(out_path, "graph_edges.csv"), index=False)
-                del ip
                 exit()
+            del ip
         elif ROUNDING_METHOD == "round_bike_optimize":
             # compute the paretor frontier
             tic = time.time()
@@ -190,10 +201,13 @@ if __name__ == "__main__":
                 weight_od_flow=WEIGHT_OD_FLOW,
             )
             if args.save_graph:
-                G_lane_output = opt.pareto(return_graph=True, max_bike_edges=NUM_BIKE_EDGES)
+                num_bike_edges = int(RATIO_BIKE_EDGES * G_lane.number_of_edges())
+                G_lane_output = opt.pareto(return_graph=True, max_bike_edges=num_bike_edges)
                 edge_df = nx.to_pandas_edgelist(G_lane_output, edge_key="edge_key")
                 edge_df.to_csv(os.path.join(out_path, "graph_edges.csv"), index=False)
                 exit()
+            else:
+                pareto_df = opt.pareto()
 
             print("Time pareto", time.time() - tic)
             runtimes_pareto.append(time.time() - tic)

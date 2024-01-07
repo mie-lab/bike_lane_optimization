@@ -44,13 +44,13 @@ def od_sp(G, od, weight, weight_od_flow=False):
     sp = []
     for _, row in od.iterrows():
         # skip paths with weight = 0
-        if row["trips_per_day"] == 0:
+        if row["trips"] == 0:
             continue
         # compute shortest path
         sp_len = nx.shortest_path_length(G, source=row["s"], target=row["t"], weight=weight)
         # apply weight if desired
         if weight_od_flow:
-            sp_len *= row["trips_per_day"]
+            sp_len *= row["trips"]
         sp.append(sp_len)
     return np.mean(sp)
 
