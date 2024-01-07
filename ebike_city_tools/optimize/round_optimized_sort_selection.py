@@ -2,6 +2,7 @@ import math
 import pandas as pd
 import networkx as nx
 import numpy as np
+from scipy.spatial.distance import cdist
 
 from ebike_city_tools.optimize.linear_program import define_IP
 from ebike_city_tools.optimize.round_simple import edge_to_source_target
@@ -17,7 +18,7 @@ from ebike_city_tools.metrics import compute_travel_times_in_graph
 
 FLOW_CONSTANT = 1
 
-def sort_by_bikevalue(capacities) :
+def sort_by_bikevalue(capacities):
     """Sorts the capacities by planned bike capacity, with ties broken by car capacity."""
     return capacities.sort_values(["u_b(e)", "u_c(e)"], ascending=[False, True])
 
@@ -31,7 +32,7 @@ def round_row(row):
     row["u_b(e)"] = row["u_b(e)"] + rounded_by
     return row
 
-def sort_by_rounding_error(capacities) :
+def sort_by_rounding_error(capacities):
     """Sorts the capacities by increasing rounding error of the car capacity."""
     cap_with_rounding_error = capacities
     # round car capacity to at most 1
@@ -44,7 +45,7 @@ def sort_by_rounding_error(capacities) :
     sorted_cap = sorted_cap.apply(round_row, axis = 1)
     return sorted_cap.drop(['rounded_car', 'rounding_error'], axis=1)
 
-def determine_valid_arcs(od_pairs, graph, number_of_paths=3) :
+def determine_valid_arcs(od_pairs, graph, number_of_paths=3):
     """Given a graph, a pair of vertices (s,t) and a specified number of paths to be specified, this returns
         the arcs that lie on one of the number_of_paths shortest s-t-paths."""
    
@@ -76,9 +77,70 @@ def determine_arcs_between_vertices(graph, vertices):
     """Auxiliary routine that returns all arcs in the graph, that have both endpoints in the specified vertex set."""
     valid_arcs = []
     for arc in graph.edges():
-        if (arc[0] in vertices and arc[1] in vertices) :
+        if (arc[0] in vertices and arc[1] in vertices):
             valid_arcs.append(arc)
     return list(set(valid_arcs))
+
+def make_node_ranking(G_base: nx.DiGraph):
+    """
+    Auxiliary method to sort nodes by their distance to other nodes
+
+    Args:
+        G_base (nx.DiGraph): Input graph
+
+    Returns:
+        distance_ranking (np.ndarray): 2D array with ranks of other nodes per node
+        id_index_mapping (dict): maps from node ID to index in distance_ranking array 
+    """
+    # get node attribute and save nodes in array
+    node_coords = nx.get_node_attributes(G_base, "loc")
+    id_index_mapping, index_id_mapping, node_coord_array = {}, np.zeros(len(node_coords)), np.zeros((len(node_coords), 2))
+    for i, (key, value) in enumerate(sorted(node_coords.items())):
+        id_index_mapping[key] = i # map node ID to index in new array
+        node_coord_array[i] = value[:2]
+        index_id_mapping[i] = key
+        
+    # compute pairwise distance
+    pairwise_distance = cdist(node_coord_array, node_coord_array)
+    # find closest nodes
+    distance_ranking = np.argsort(pairwise_distance, axis=1)
+    # translate into closest node ID
+    for i in range(len(distance_ranking)): 
+        distance_ranking[i] = index_id_mapping[(distance_ranking[i]).astype(int)]
+    return distance_ranking.astype(int), id_index_mapping
+
+
+def valid_arcs_spatial_selection(od: pd.DataFrame, G_base: nx.DiGraph, k_closest: int):
+    """
+    Select arcs for each OD pair by using the k_closest nodes for each node on the shortest path
+
+    Args:
+        od (pd.DataFrame): OD matrix
+        G_base (nx.DiGraph): input graph
+        k_closest (int): number of closest nodes selected for each node on the path
+
+    Returns:
+        dict: _description_
+    """
+    assert k_closest > 0, "k closest must be at least 0"
+
+    # rank nodes by their distance to another
+    distance_ranking, id_index_mapping = make_node_ranking(G_base)
+
+    valid_arcs = {}
+    # iterate over OD pairs
+    for od_pair in zip(od["s"], od["t"]):
+        (s, t) = od_pair
+        # compute shortest path between them
+        shortest_path_nodes = nx.shortest_path(G_base, s, t, "bike_travel_time")
+        # for each node from the shortest path, find the k closest nodes
+        nodes_for_subgraph = []
+        for node in shortest_path_nodes:
+            k_closest_nodes = distance_ranking[id_index_mapping[node], :k_closest]
+            nodes_for_subgraph.extend(k_closest_nodes)
+        # make the subgraph of all selected nodes
+        valid_arcs[od_pair] = determine_arcs_between_vertices(G_base, nodes_for_subgraph)
+    return valid_arcs
 
 
 class ParetoRoundOptimizeSortSelect:
@@ -178,11 +240,10 @@ class ParetoRoundOptimizeSortSelect:
                 # Run optimization
                 capacities = self.optimize(fixed_capacities)
                 # sort capacities by specified method.
-                match self.rounding_method:
-                    case "highest_bike_value":
-                        cap_sorted = sort_by_bikevalue(capacities)
-                    case "lowest_rounding_error":
-                        cap_sorted = sort_by_rounding_error(capacities)
+                if self.rounding_method == "highest_bike_value":
+                    cap_sorted = sort_by_bikevalue(capacities)
+                elif self.rounding_method == "lowest_rounding_error":
+                    cap_sorted = sort_by_rounding_error(capacities)
             found_edge = False
             # iterate over capacities until we find an edge that can be added
             for (_, row) in cap_sorted.iterrows():
