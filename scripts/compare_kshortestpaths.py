@@ -12,7 +12,7 @@ OUT_PATH = "outputs"
 os.makedirs(OUT_PATH, exist_ok=True)
 
 SHARED_LANE_FACTOR = 2  # factor how much more expensive it is to bike on a car lane
-NUMBER_PATHS_LIST = [0, 2, 4, 8, 16, 24]
+NUMBER_PATHS_LIST = [0, 2, 4, 8, 16, 24]  # [0, 1, 2, 3, 4, 5, 6] for determine_valid_arcs
 CAR_WEIGHT = 1
 OD_REDUCTION = 0.1
 graph_trial_size_list = [30, 30, 30, 30, 40, 40, 40, 40, 50, 50, 50, 50, 60, 60, 60, 60]
@@ -29,7 +29,6 @@ for graph_num, n in enumerate(graph_trial_size_list):
     od = extend_od_circular(od, list(G_lane.nodes()))
 
     # use different k shortest paths parameter
-    # for number_paths in NUMBER_PATHS_LIST:
     for number_paths in NUMBER_PATHS_LIST:
         G = G_base.copy()
 
@@ -95,4 +94,4 @@ for graph_num, n in enumerate(graph_trial_size_list):
         print("\n-------------")
 
     # save in every intermediate step in case something throws an error
-    pd.DataFrame(res_df).to_csv(os.path.join(OUT_PATH, "k_shortest_path_comparison.csv"), index=False)
+    pd.DataFrame(res_df).to_csv(os.path.join(OUT_PATH, "k_shortest_path.csv"), index=False)
