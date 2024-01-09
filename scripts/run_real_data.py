@@ -49,6 +49,7 @@ def generate_motorized_lane_graph(
     return_H=False,
 ):
     G = io.load_street_graph(edge_path, node_path)  # initialize lanes after rebuild
+    print("Initial street graph edges:", G.number_of_edges())
     # need to save the maxspeed attribute here to use it later
     nx.set_edge_attributes(G, nx.get_edge_attributes(G, source_lanes_attribute), target_lanes_attribute)
     # ensure consistent edge directions (only from lower to higher node!)
@@ -61,8 +62,10 @@ def generate_motorized_lane_graph(
     merge_edges.merge_consecutive_edges(H, distinction_attributes={KEY_LANES_DESCRIPTION_AFTER})
     # make lane graph
     L = lane_graph.create_lane_graph(H, KEY_GIVEN_LANES_DESCRIPTION)
+    print("Initial lane graph edges:", L.number_of_edges())
     # make sure that the graph is strongly connected
     L = graph.keep_only_the_largest_connected_component(L)
+    print("Lane graph edges after keeping connected component:", L.number_of_edges())
     # add some edge attributes that we need for the optimization (e.g. slope)
     L = adapt_edge_attributes(L, ignore_fixed=IGNORE_FIXED)
     if return_H:
@@ -75,7 +78,6 @@ if __name__ == "__main__":
     parser.add_argument("-d", "--data_path", default="../street_network_data/zollikerberg", type=str)
     parser.add_argument("-i", "--instance", default="affoltern", type=str)
     parser.add_argument("-o", "--out_path", default="outputs", type=str)
-    parser.add_argument("-q", "--quantile_od", default=0, help="quantile of OD matrix used")
     parser.add_argument("-c", "--car_weight", default=1, help="weighting of cars in objective function")
     parser.add_argument(
         "-p", "--penalty_shared", default=2, type=int, help="penalty factor for driving on a car lane by bike"
@@ -99,7 +101,6 @@ if __name__ == "__main__":
     out_path = os.path.join(args.out_path, args.instance)
     sp_method = args.sp_method
     algorithm = args.algorithm
-    quantile_od = args.quantile_od
     assert algorithm in ["optimize", "betweenness_topdown", "betweenness_cartime", "betweenness_biketime"]
     out_path_ending = "_od" if sp_method == "od" else ""
     os.makedirs(out_path, exist_ok=True)
@@ -112,8 +113,6 @@ if __name__ == "__main__":
 
     # load OD
     od = pd.read_csv(os.path.join(path, "od_matrix.csv"))
-    if quantile_od > 0:
-        od = od[od["trips"] >= np.quantile(od["trips"], quantile_od)]
     od = od[od["s"] != od["t"]]
     # reduce OD matrix to nodes that are in G_lane
     node_list = list(G_lane.nodes())
