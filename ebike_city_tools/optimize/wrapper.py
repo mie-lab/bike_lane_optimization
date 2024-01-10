@@ -1,5 +1,6 @@
 import networkx as nx
 import pandas as pd
+import numpy as np
 
 from ebike_city_tools.optimize.linear_program import define_IP
 from ebike_city_tools.utils import (
@@ -47,6 +48,13 @@ def adapt_edge_attributes(L: nx.MultiDiGraph, ignore_fixed=False):
         # if pd.isna(speed_limit_attr[e]):
         #     isna += 1
         #     speed_limit_attr[e] = 30
+
+    # add location to node coordinates
+    x_dict, y_dict = nx.get_node_attributes(L, "x"), nx.get_node_attributes(L, "y")
+    loc = {n: {"loc": np.array([x_dict[n], y_dict[n]])} for n in L.nodes()}
+    nx.set_node_attributes(L, loc)
+
+    # add speed limit attribute
     speed_limit_attr = nx.get_edge_attributes(L, "maxspeed")
     # replace NaNs
     speed_limit_attr = {k: v if not pd.isna(v) else 30 for k, v in speed_limit_attr.items()}
