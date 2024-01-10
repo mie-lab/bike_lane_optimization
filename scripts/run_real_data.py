@@ -3,6 +3,10 @@ import os
 import json
 import argparse
 import pandas as pd
+import numpy as np
+import geopandas as gpd
+import networkx as nx
+
 from ebike_city_tools.optimize.linear_program import define_IP
 from ebike_city_tools.utils import (
     lane_to_street_graph,
@@ -15,9 +19,8 @@ from ebike_city_tools.optimize.round_simple import pareto_frontier, rounding_and
 from ebike_city_tools.iterative_algorithms import betweenness_pareto, topdown_betweenness_pareto
 from ebike_city_tools.optimize.wrapper import adapt_edge_attributes
 from ebike_city_tools.optimize.round_optimized import ParetoRoundOptimize
-import numpy as np
-import geopandas as gpd
-import networkx as nx
+from ebike_city_tools.optimize.round_optimized_sort_selection import valid_arcs_spatial_selection
+
 from snman import distribution, street_graph, graph, io, merge_edges, lane_graph
 from snman.constants import (
     KEY_LANES_DESCRIPTION,
@@ -77,8 +80,11 @@ if __name__ == "__main__":
     parser.add_argument("-d", "--data_path", default="../street_network_data/zollikerberg", type=str)
     parser.add_argument("-i", "--instance", default="affoltern", type=str)
     parser.add_argument("-o", "--out_path", default="outputs", type=str)
-    parser.add_argument("-k", "--optimize_every_k", default=50, help="how often to re-optimize")
-    parser.add_argument("-c", "--car_weight", default=1, help="weighting of cars in objective function")
+    parser.add_argument("-k", "--optimize_every_k", default=50, type=int, help="how often to re-optimize")
+    parser.add_argument("-c", "--car_weight", default=1, type=float, help="weighting of cars in objective function")
+    parser.add_argument(
+        "-v", "--valid_edges_k", default=0, type=int, help="if subsampling edges, the number of nodes around SP"
+    )
     parser.add_argument(
         "-p", "--penalty_shared", default=2, type=int, help="penalty factor for driving on a car lane by bike"
     )
@@ -144,6 +150,11 @@ if __name__ == "__main__":
 
     G_street = lane_to_street_graph(G_lane)
 
+    # set valid edges
+    valid_arcs = None
+    if args.valid_edges_k > 0:
+        valid_arcs = valid_arcs_spatial_selection(od, G_street, args.valid_edges_k)
+
     # tune the car_weight
     runtimes_pareto = []
     for car_weight in [float(args.car_weight)]:  # [0.1, 0.25, 0.5, 1, 2, 4, 8]:
@@ -159,6 +170,7 @@ if __name__ == "__main__":
                 shared_lane_factor=shared_lane_factor,
                 weight_od_flow=WEIGHT_OD_FLOW,
                 car_weight=car_weight,
+                valid_edges_per_od_pair=valid_arcs,
             )
             toc = time.time()
             ip.optimize()
@@ -175,6 +187,7 @@ if __name__ == "__main__":
                 sp_method=sp_method,
                 od_matrix=od,
                 weight_od_flow=WEIGHT_OD_FLOW,
+                valid_edges_per_od_pair=valid_arcs,
             )
 
             if args.save_graph:
