@@ -1,21 +1,28 @@
 import os
 import time
+import argparse
 import numpy as np
-import networkx as nx
 import pandas as pd
+
 from ebike_city_tools.synthetic import random_lane_graph, make_fake_od
 from ebike_city_tools.utils import lane_to_street_graph, extend_od_circular
 from ebike_city_tools.optimize.linear_program import define_IP
 from ebike_city_tools.optimize.round_optimized_sort_selection import determine_valid_arcs, valid_arcs_spatial_selection
 
-OUT_PATH = "outputs"
+
+parser = argparse.ArgumentParser()
+parser.add_argument("-o", "--out_path", default="outputs", type=str)
+args = parser.parse_args()
+
+OUT_PATH = args.out_path
 os.makedirs(OUT_PATH, exist_ok=True)
 
 SHARED_LANE_FACTOR = 2  # factor how much more expensive it is to bike on a car lane
-NUMBER_PATHS_LIST = [0, 2, 4, 8, 16, 24]  # [0, 1, 2, 3, 4, 5, 6] for determine_valid_arcs
+NUMBER_PATHS_LIST = [0, 20, 30, 40, 50]  # this is actually the number of nodes used aroudn the shortest path
+# [0, 1, 2, 3, 4, 5, 6] for method "determine_valid_arcs"
 CAR_WEIGHT = 1
-OD_REDUCTION = 0.1
-graph_trial_size_list = [30, 30, 30, 30, 40, 40, 40, 40, 50, 50, 50, 50, 60, 60, 60, 60]
+OD_REDUCTION = 0.01
+graph_trial_size_list = [100, 100, 100, 250, 250, 250, 200, 200, 200, 150, 150, 150]
 
 np.random.seed(42)
 
@@ -62,7 +69,10 @@ for graph_num, n in enumerate(graph_trial_size_list):
             fixed_values.append({"u_b(e)": ip.vars[f"u_{e},b"].x, "u_c(e)": ip.vars[f"u_{e},c"].x, "Edge": e})
         fixed_values = pd.DataFrame(fixed_values)  # .set_index(["u", "v"])
 
-        # solve problem again with full od but fixed capacities - basically solving all-pairs min-cost flow problem
+        # solve problem again with full od but fixed capacities
+        # this way, the capacities are set to the values optimized with the reduced edge set, but the flow can be
+        # divided differently - this time to all edges. We therefore compute the objective value when the capacities are
+        # set by the simplified algorithm, but the cars can still go where it's best and not just along the edge set
         ip_full = define_IP(
             G,
             cap_factor=1,
@@ -94,4 +104,4 @@ for graph_num, n in enumerate(graph_trial_size_list):
         print("\n-------------")
 
     # save in every intermediate step in case something throws an error
-    pd.DataFrame(res_df).to_csv(os.path.join(OUT_PATH, "k_shortest_path.csv"), index=False)
+    pd.DataFrame(res_df).to_csv(os.path.join(OUT_PATH, "k_shortest_path_big.csv"), index=False)
