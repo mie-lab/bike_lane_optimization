@@ -209,7 +209,7 @@ def extend_od_circular(od, nodes):
 
     # make sure that no loops
     od_new = od_new[od_new["s"] != od_new["t"]]
-    return od_new.drop_duplicates()
+    return od_new.drop_duplicates(subset=["s", "t"])
 
 
 def extend_od_matrix(od, nodes):

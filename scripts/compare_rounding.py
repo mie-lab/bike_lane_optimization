@@ -44,8 +44,6 @@ if __name__ == "__main__":
             pareto_between = algorithm_func(G_lane.copy(), od_matrix=od.copy(), **kwargs_betweenness)
             pareto_between.to_csv(os.path.join(OUT_PATH, f"pareto_{algorithm}_{graph_trial}.csv"), index=False)
 
-        # TODO: run alternative algorithm with car and bike edge rounding
-
         # Run ParetoRoundOptimize with varying batch size
         for trial, optimize_every in enumerate([G_lane.number_of_edges() + 10] + OPTIMIZE_EVERY_LIST):
             for car_weight in CAR_WEIGHT_LIST:
