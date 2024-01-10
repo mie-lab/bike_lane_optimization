@@ -30,7 +30,6 @@ ROUNDING_METHOD = "round_bike_optimize"
 IGNORE_FIXED = True
 FLOW_CONSTANT = 1  # how much flow to send through a path
 WEIGHT_OD_FLOW = False
-OPTIMIZE_EVERY_K = 50
 RATIO_BIKE_EDGES = 0.4
 algorithm_dict = {
     "betweenness_topdown": (topdown_betweenness_pareto, {}),
@@ -78,6 +77,7 @@ if __name__ == "__main__":
     parser.add_argument("-d", "--data_path", default="../street_network_data/zollikerberg", type=str)
     parser.add_argument("-i", "--instance", default="affoltern", type=str)
     parser.add_argument("-o", "--out_path", default="outputs", type=str)
+    parser.add_argument("-k", "--optimize_every_k", default=50, help="how often to re-optimize")
     parser.add_argument("-c", "--car_weight", default=1, help="weighting of cars in objective function")
     parser.add_argument(
         "-p", "--penalty_shared", default=2, type=int, help="penalty factor for driving on a car lane by bike"
@@ -193,7 +193,7 @@ if __name__ == "__main__":
             opt = ParetoRoundOptimize(
                 G_lane.copy(),
                 od.copy(),
-                optimize_every_x=OPTIMIZE_EVERY_K,
+                optimize_every_x=args.optimize_every_k,
                 car_weight=car_weight,
                 sp_method=sp_method,
                 shared_lane_factor=shared_lane_factor,
@@ -214,10 +214,13 @@ if __name__ == "__main__":
             raise ValueError("Rounding method must be one of {round_bike_optimize, round_simple}")
 
         # save to file
-        pareto_df.to_csv(os.path.join(out_path, f"real_pareto_optimize{out_path_ending}_{car_weight}.csv"), index=False)
+        pareto_df.to_csv(
+            os.path.join(out_path, f"real_pareto_optimize{out_path_ending}_{car_weight}_{args.optimize_every_k}.csv"),
+            index=False,
+        )
 
     # save runtimes
-    with open(os.path.join(out_path, "runtimes_pareto.json"), "w") as outfile:
+    with open(os.path.join(out_path, f"runtime_pareto_{car_weight}_{args.optimize_every_k}.json"), "w") as outfile:
         json.dump(runtimes_pareto, outfile)
 
     # combine all pareto frontiers
