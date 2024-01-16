@@ -122,7 +122,7 @@ class ParetoRoundOptimizeSortSelect:
         is_fixed_car = nx.get_edge_attributes(G_lane, "fixed")
 
         # set lanetype to car
-        nx.set_edge_attributes(G_lane, "M", name="lanetype")
+        nx.set_edge_attributes(G_lane, "M>", name="lanetype")
 
         # set car and bike time attributes of the graph (starting from a graph with only cars)
         car_time, bike_time = {}, {}

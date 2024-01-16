@@ -272,7 +272,7 @@ def compute_bike_time(distance, gradient):
 
 
 def compute_car_time(row):
-    if row["lanetype"] == "M":
+    if "M" in row["lanetype"]:
         return 60 * row["distance"] / row["speed_limit"]
     else:
         return np.inf
@@ -288,9 +288,9 @@ def compute_edgedependent_bike_time(row, shared_lane_factor: int = 2):
 
 
 def compute_penalized_car_time(attr_dict: dict, bike_lane_speed: int = 10) -> int:
-    if attr_dict["lanetype"] == "M":
+    if "M" in attr_dict["lanetype"]:
         return 60 * attr_dict["distance"] / attr_dict["speed_limit"]
-    elif attr_dict["lanetype"] == "P":
+    elif "P" in attr_dict["lanetype"]:
         # return np.inf  # uncomment to test top-down approach with infinite paths
         return 60 * attr_dict["distance"] / bike_lane_speed  # assume speed limit on bike priority lanes
     else:
@@ -317,10 +317,10 @@ def output_lane_graph(
     # Step 1: make one dataframe of all car and bike edges
     car_edges = nx.to_pandas_edgelist(car_G)
     car_edges["lane"] = "M>"
-    car_edges["lanetype"] = "M"
+    car_edges["lanetype"] = "M>"
     bike_edges = nx.to_pandas_edgelist(bike_G.to_directed())
     bike_edges["lane"] = "P>"
-    bike_edges["lanetype"] = "P"
+    bike_edges["lanetype"] = "P>"
     all_edges = pd.concat([car_edges, bike_edges])
     all_edges["direction"] = ">"
     all_edges.drop(output_attr, axis=1, inplace=True, errors="ignore")
@@ -357,6 +357,16 @@ def output_lane_graph(
     # make sure that the other attributes are transferred to the new graph
     G_final = transfer_node_attributes(G_lane, G_final)
     return G_final
+
+
+def remove_node_attribute(G, attr):
+    """Sets this attribute to zero for all nodes"""
+    nx.set_node_attributes(G, {n: 0 for n in G.nodes()}, attr)
+
+
+def remove_edge_attribute(G, attr):
+    """Sets this attribute to zero for all nodes"""
+    nx.set_edge_attributes(G, {e: 0 for e in G.edges()}, attr)
 
 
 def filter_by_attribute(G, attr, attr_value):

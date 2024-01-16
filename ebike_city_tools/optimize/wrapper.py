@@ -9,11 +9,21 @@ from ebike_city_tools.utils import (
     output_lane_graph,
     filter_by_attribute,
     output_to_dataframe,
+    remove_node_attribute,
 )
-from ebike_city_tools.optimize.round_simple import rounding_and_splitting
+from ebike_city_tools.optimize.round_optimized import ParetoRoundOptimize
 
-WEIGHT_OD_FLOW = False
-FLOW_CONSTANT = 1
+
+OPTIMIZE_PARAMS = {
+    "bike_flow_constant": 1,
+    "car_flow_constant": 1,
+    "optimize_every_x": 1000,  # TODO: set lower for final version
+    "valid_edges_k": None,
+    "car_weight": 2,
+    "sp_method": "od",
+    "shared_lane_factor": 2,
+    "weight_od_flow": False,
+}
 
 
 def adapt_edge_attributes(L: nx.MultiDiGraph, ignore_fixed=False):
@@ -33,21 +43,9 @@ def adapt_edge_attributes(L: nx.MultiDiGraph, ignore_fixed=False):
     elevation_dict = nx.get_node_attributes(L, "elevation")  # can be empty, than flat assumed
     length_dict = nx.get_edge_attributes(L, "length")
     gradient_attr, speed_limit_attr = {}, {}
-    # isna = 0
     for e in L.edges:
         (u, v, _) = e  # TODO: remove loops
         gradient_attr[e] = 100 * (elevation_dict.get(v, 0) - elevation_dict.get(u, 0)) / length_dict[e]
-        # Old version for speed limit (from G instead of L)
-        # set speed limit attribute
-        # if (u, v, 0) in maxspeed.keys():
-        #     speed_limit_attr[e] = maxspeed[(u, v, 0)]
-        # elif (v, u, 0) in maxspeed.keys():
-        #     speed_limit_attr[e] = maxspeed[(v, u, 0)]
-        # else:
-        #     speed_limit_attr[e] = pd.NA
-        # if pd.isna(speed_limit_attr[e]):
-        #     isna += 1
-        #     speed_limit_attr[e] = 30
 
     # add location to node coordinates
     x_dict, y_dict = nx.get_node_attributes(L, "x"), nx.get_node_attributes(L, "y")
@@ -64,7 +62,16 @@ def adapt_edge_attributes(L: nx.MultiDiGraph, ignore_fixed=False):
     return L
 
 
-def lane_optimization(L, od_df=None, edge_fraction=0.4, shared_lane_factor=2, verbose=True):
+def lane_optimization(
+    L,
+    L_existing=None,
+    street_graph=None,
+    width_attribute=None,
+    od_df=None,
+    edge_fraction=0.1,
+    optimize_params=OPTIMIZE_PARAMS,
+    verbose=True,
+):
     """
     Optimizes bike lane allocation with LP approach - to be incorporated in SNMan
     Inputs:
@@ -93,39 +100,22 @@ def lane_optimization(L, od_df=None, edge_fraction=0.4, shared_lane_factor=2, ve
     od = od[(od["s"].isin(node_list)) & (od["t"].isin(node_list))]
     # extend OD matrix because otherwise we get disconnected car graph
     od = extend_od_circular(od, node_list)
+    od["trips"] = 1  # TODO
 
-    # change representation
-    G_street = lane_to_street_graph(G_lane)
-
-    for u, v, d in G_street.edges(data=True):
-        if pd.isna(d["gradient"]):
-            print("street NAN")
-
-    ip = define_IP(
-        G_street,
-        cap_factor=1,
-        car_weight=10,
-        od_df=od,
-        bike_flow_constant=FLOW_CONSTANT,
-        car_flow_constant=FLOW_CONSTANT,
-        shared_lane_factor=shared_lane_factor,
-        weight_od_flow=WEIGHT_OD_FLOW,
+    print(
+        f"---------------\nProcessing lane graph, {G_lane.number_of_edges()} edges and {G_lane.number_of_nodes()} nodes"
     )
-    ip.optimize()
-    capacity_values = output_to_dataframe(ip, G_street)
-    del ip
-    # print("HERE", sum(capacity_values["u_b(e)"] > 0))
+    print(f"with {len(od)} OD pairs")
 
-    # compute how many bike edges we want to have
-    bike_edges_to_add = int(edge_fraction * G_lane.number_of_edges())
-
-    # rounding algorithm
-    bike_G, car_G = rounding_and_splitting(capacity_values, bike_edges_to_add=bike_edges_to_add)
-
-    # combine bike and car graph in a new lane graph with all relevant attributes
-    new_lane_graph = output_lane_graph(G_lane, bike_G, car_G, shared_lane_factor)
+    opt = ParetoRoundOptimize(G_lane.copy(), od.copy(), **optimize_params)
+    num_bike_edges = int(edge_fraction * G_lane.number_of_edges())
+    new_lane_graph = opt.pareto(return_graph=True, max_bike_edges=num_bike_edges)
 
     # return only the car lanes
-    G_filtered = filter_by_attribute(new_lane_graph, "lane", "M>")
+    G_filtered = filter_by_attribute(new_lane_graph, "lanetype", "M>")
+    print(G_filtered.number_of_edges(), G_filtered.number_of_nodes())
+
+    # delete loc
+    remove_node_attribute(G_filtered, "loc")
 
     return G_filtered

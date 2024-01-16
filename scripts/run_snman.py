@@ -36,7 +36,7 @@ measurement_regions_gdf = snman.io.load_measurement_regions(
 )
 
 print("Rebuild regions")
-snman.rebuilding.rebuild_regions(
+snman.rebuilding.rebuild_regions(  # TODO: multi_rebuild_regions --> doesn't work because no output L
     G,
     rebuilding_regions_gdf,
     rebuilding_function=lane_optimization,

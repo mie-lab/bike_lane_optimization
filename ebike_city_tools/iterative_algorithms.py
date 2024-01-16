@@ -260,7 +260,7 @@ def betweenness_pareto(
     is_bike_or_fixed = nx.get_edge_attributes(G_lane, "fixed")
 
     # set lanetype to car
-    nx.set_edge_attributes(G_lane, "M", name="lanetype")
+    nx.set_edge_attributes(G_lane, "M>", name="lanetype")
 
     # set car and bike time attributes of the graph (starting from a graph with only cars)
     car_time, bike_time = {}, {}
@@ -429,7 +429,7 @@ def topdown_betweenness_pareto(
                 edge_to_transform = s[0]
                 break
         edges_removed += 1
-        G_lane.edges[edge_to_transform]["lanetype"] = "M"
+        G_lane.edges[edge_to_transform]["lanetype"] = "M>"
         G_lane.edges[edge_to_transform]["car_time"] = compute_car_time(G_lane.edges[edge_to_transform])
         # increase bike_time
         G_lane.edges[edge_to_transform]["bike_time"] *= shared_lane_factor
