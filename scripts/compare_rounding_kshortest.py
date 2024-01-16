@@ -6,9 +6,7 @@ import matplotlib.pyplot as plt
 from ebike_city_tools.synthetic import random_lane_graph, make_fake_od
 from ebike_city_tools.optimize.round_optimized import ParetoRoundOptimize
 from ebike_city_tools.optimize.round_optimized_sort_selection import ParetoRoundOptimizeSortSelect
-from ebike_city_tools.optimize.iterative_rounding_and_resolving import iterative_rounding
-from ebike_city_tools.optimize.optimizer import Optimizer
-from ebike_city_tools.utils import lane_to_street_graph
+from ebike_city_tools.utils import extend_od_circular
 from ebike_city_tools.iterative_algorithms import topdown_betweenness_pareto, betweenness_pareto
 
 WEIGHT_OD_FLOW = False
@@ -55,6 +53,8 @@ if __name__ == "__main__":
             # run betweenness centrality algorithm for comparison
             pareto_between = algorithm_func(G_lane.copy(), od_matrix=od.copy(), **kwargs_betweenness)
             pareto_between.to_csv(os.path.join(OUT_PATH, f"pareto_{algorithm}_{graph_trial}.csv"), index=False)
+
+        od = extend_od_circular(od, list(G_lane.nodes()))
 
         # Run ParetoRoundOptimize with varying batch size
         for trial, optimize_every in enumerate([G_lane.number_of_edges() + 10] + OPTIMIZE_EVERY_LIST):

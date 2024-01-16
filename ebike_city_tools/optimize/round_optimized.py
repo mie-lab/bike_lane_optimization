@@ -22,8 +22,9 @@ class ParetoRoundOptimize:
         """
         kwargs: Potential keyword arguments to be passed to the LP function
         """
-        self.od = extend_od_circular(od, list(G_lane.nodes()))
         self.G_lane = G_lane
+        assert nx.is_strongly_connected(G_lane), "Lane graph is not strongly connected"
+        self.od = od
         self.sp_method = sp_method
         self.optimize_every_x = optimize_every_x
         self.optimize_kwargs = kwargs
@@ -152,6 +153,7 @@ class ParetoRoundOptimize:
             bike_travel_time, car_travel_time = compute_travel_times_in_graph(
                 G_lane, self.od, self.sp_method, weight_od_flow
             )
+            assert not (pd.isna(bike_travel_time) or pd.isna(car_travel_time)), "travel times NaN"
             pareto_df.append(
                 {
                     "bike_edges_added": edges_removed,

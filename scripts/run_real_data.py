@@ -19,7 +19,6 @@ from ebike_city_tools.optimize.round_simple import pareto_frontier, rounding_and
 from ebike_city_tools.iterative_algorithms import betweenness_pareto, topdown_betweenness_pareto
 from ebike_city_tools.optimize.wrapper import adapt_edge_attributes
 from ebike_city_tools.optimize.round_optimized import ParetoRoundOptimize
-from ebike_city_tools.optimize.round_optimized_sort_selection import valid_arcs_spatial_selection
 
 from snman import distribution, street_graph, graph, io, merge_edges, lane_graph
 from snman.constants import (
@@ -150,11 +149,6 @@ if __name__ == "__main__":
 
     G_street = lane_to_street_graph(G_lane)
 
-    # set valid edges
-    valid_arcs = None
-    if args.valid_edges_k > 0:
-        valid_arcs = valid_arcs_spatial_selection(od, G_street, args.valid_edges_k)
-
     # tune the car_weight
     runtimes_pareto = []
     for car_weight in [float(args.car_weight)]:  # [0.1, 0.25, 0.5, 1, 2, 4, 8]:
@@ -170,7 +164,7 @@ if __name__ == "__main__":
                 shared_lane_factor=shared_lane_factor,
                 weight_od_flow=WEIGHT_OD_FLOW,
                 car_weight=car_weight,
-                valid_edges_per_od_pair=valid_arcs,
+                valid_edges_k=args.valid_edges_k,
             )
             toc = time.time()
             ip.optimize()
@@ -187,7 +181,7 @@ if __name__ == "__main__":
                 sp_method=sp_method,
                 od_matrix=od,
                 weight_od_flow=WEIGHT_OD_FLOW,
-                valid_edges_per_od_pair=valid_arcs,
+                valid_edges_k=args.valid_edges_k,
             )
 
             if args.save_graph:
@@ -211,6 +205,7 @@ if __name__ == "__main__":
                 sp_method=sp_method,
                 shared_lane_factor=shared_lane_factor,
                 weight_od_flow=WEIGHT_OD_FLOW,
+                valid_edges_k=args.valid_edges_k,
             )
             if args.save_graph:
                 num_bike_edges = int(RATIO_BIKE_EDGES * G_lane.number_of_edges())

@@ -2,7 +2,6 @@ import math
 import pandas as pd
 import networkx as nx
 import numpy as np
-from scipy.spatial.distance import cdist
 
 from ebike_city_tools.optimize.linear_program import define_IP
 from ebike_city_tools.optimize.round_simple import edge_to_source_target
@@ -12,15 +11,18 @@ from ebike_city_tools.utils import (
     compute_car_time,
     compute_edgedependent_bike_time,
     output_to_dataframe,
+    determine_valid_arcs,
 )
 from ebike_city_tools.iterative_algorithms import transform_car_to_bike_edge
 from ebike_city_tools.metrics import compute_travel_times_in_graph
 
 FLOW_CONSTANT = 1
 
+
 def sort_by_bikevalue(capacities):
     """Sorts the capacities by planned bike capacity, with ties broken by car capacity."""
     return capacities.sort_values(["u_b(e)", "u_c(e)"], ascending=[False, True])
+
 
 def round_row(row):
     """Given a row, this function returns the row obtained by rounding the car and bike capacities."""
@@ -32,6 +34,7 @@ def round_row(row):
     row["u_b(e)"] = row["u_b(e)"] + rounded_by
     return row
 
+
 def sort_by_rounding_error(capacities):
     """Sorts the capacities by increasing rounding error of the car capacity."""
     cap_with_rounding_error = capacities
@@ -42,109 +45,21 @@ def sort_by_rounding_error(capacities):
 
     # sort by rounding error and bike capacity
     sorted_cap = cap_with_rounding_error.sort_values(["rounding_error", "u_b(e)"], ascending=[True, False])
-    sorted_cap = sorted_cap.apply(round_row, axis = 1)
-    return sorted_cap.drop(['rounded_car', 'rounding_error'], axis=1)
-
-def determine_valid_arcs(od_pairs, graph, number_of_paths=3):
-    """Given a graph, a pair of vertices (s,t) and a specified number of paths to be specified, this returns
-        the arcs that lie on one of the number_of_paths shortest s-t-paths."""
-   
-    output = {}
-    od_pairs_as_pairs = list(zip(od_pairs['s'], od_pairs['t']))
-    for od_pair in od_pairs_as_pairs:
-        vertices = determine_vertices_on_shortest_paths(od_pair, graph, number_of_paths)
-        arcs = determine_arcs_between_vertices(graph, vertices)
-        output[od_pair] = arcs
-    return output
-
-def determine_vertices_on_shortest_paths(od_pair, graph, number_of_paths):
-    """Auxiliary routine to extract the vertices lying on the shortest path for the given od_pair."""
-    graph_copy = graph.copy()
-    s = od_pair[0]
-    t = od_pair[1]
-    vertices_on_shortest_paths = set()
-    for _ in range(number_of_paths):
-        try:
-            path = nx.shortest_path(graph_copy, s, t, "bike_travel_time")
-        except nx.exception.NetworkXNoPath:
-            break
-        vertices_on_shortest_paths.update(path)
-        shortend_path = list(path[1:-1])
-        graph_copy.remove_nodes_from(shortend_path)
-    return vertices_on_shortest_paths
-
-def determine_arcs_between_vertices(graph, vertices):
-    """Auxiliary routine that returns all arcs in the graph, that have both endpoints in the specified vertex set."""
-    valid_arcs = []
-    for arc in graph.edges():
-        if (arc[0] in vertices and arc[1] in vertices):
-            valid_arcs.append(arc)
-    return list(set(valid_arcs))
-
-def make_node_ranking(G_base: nx.DiGraph):
-    """
-    Auxiliary method to sort nodes by their distance to other nodes
-
-    Args:
-        G_base (nx.DiGraph): Input graph
-
-    Returns:
-        distance_ranking (np.ndarray): 2D array with ranks of other nodes per node
-        id_index_mapping (dict): maps from node ID to index in distance_ranking array 
-    """
-    # get node attribute and save nodes in array
-    node_coords = nx.get_node_attributes(G_base, "loc")
-    id_index_mapping, index_id_mapping, node_coord_array = {}, np.zeros(len(node_coords)), np.zeros((len(node_coords), 2))
-    for i, (key, value) in enumerate(sorted(node_coords.items())):
-        id_index_mapping[key] = i # map node ID to index in new array
-        node_coord_array[i] = value[:2]
-        index_id_mapping[i] = key
-        
-    # compute pairwise distance
-    pairwise_distance = cdist(node_coord_array, node_coord_array)
-    # find closest nodes
-    distance_ranking = np.argsort(pairwise_distance, axis=1)
-    # translate into closest node ID
-    for i in range(len(distance_ranking)): 
-        distance_ranking[i] = index_id_mapping[(distance_ranking[i]).astype(int)]
-    return distance_ranking.astype(int), id_index_mapping
-
-
-def valid_arcs_spatial_selection(od: pd.DataFrame, G_base: nx.DiGraph, k_closest: int):
-    """
-    Select arcs for each OD pair by using the k_closest nodes for each node on the shortest path
-
-    Args:
-        od (pd.DataFrame): OD matrix
-        G_base (nx.DiGraph): input graph
-        k_closest (int): number of closest nodes selected for each node on the path
-
-    Returns:
-        dict: _description_
-    """
-    assert k_closest > 0, "k closest must be at least 0"
-
-    # rank nodes by their distance to another
-    distance_ranking, id_index_mapping = make_node_ranking(G_base)
-
-    valid_arcs = {}
-    # iterate over OD pairs
-    for od_pair in zip(od["s"], od["t"]):
-        (s, t) = od_pair
-        # compute shortest path between them
-        shortest_path_nodes = nx.shortest_path(G_base, s, t, "bike_travel_time")
-        # for each node from the shortest path, find the k closest nodes
-        nodes_for_subgraph = []
-        for node in shortest_path_nodes:
-            k_closest_nodes = distance_ranking[id_index_mapping[node], :k_closest]
-            nodes_for_subgraph.extend(k_closest_nodes)
-        # make the subgraph of all selected nodes
-        valid_arcs[od_pair] = determine_arcs_between_vertices(G_base, nodes_for_subgraph)
-    return valid_arcs
+    sorted_cap = sorted_cap.apply(round_row, axis=1)
+    return sorted_cap.drop(["rounded_car", "rounding_error"], axis=1)
 
 
 class ParetoRoundOptimizeSortSelect:
-    def __init__(self, G_lane, od, number_shortest_path_for_pruning = 0, rounding_method = "highest_bike_value", sp_method="od", optimize_every_x=5, **kwargs):
+    def __init__(
+        self,
+        G_lane,
+        od,
+        number_shortest_path_for_pruning=0,
+        rounding_method="highest_bike_value",
+        sp_method="od",
+        optimize_every_x=5,
+        **kwargs
+    ):
         """
         kwargs: Potential keyword arguments to be passed to the LP function
         rounding_method: Specifies, how edges are selected for the rounding. Possible selections are:
@@ -171,17 +86,21 @@ class ParetoRoundOptimizeSortSelect:
             self.valid_arcs = determine_valid_arcs(od, graph, self.number_shortest_path_for_pruning)
         return self.valid_arcs
 
-
     def optimize(self, fixed_capacities):
         """
         Returns: newly optimized capacities
         """
         self.set_valid_arcs()
-        ip = define_IP(self.G_street,valid_edges_per_od_pair=self.valid_arcs, od_df=self.od, fixed_edges=fixed_capacities, **self.optimize_kwargs)
+        ip = define_IP(
+            self.G_street,
+            valid_edges_per_od_pair=self.valid_arcs,
+            od_df=self.od,
+            fixed_edges=fixed_capacities,
+            **self.optimize_kwargs
+        )
         ip.verbose = False
         ip.optimize()
         return output_to_dataframe(ip, self.G_street, fixed_edges=fixed_capacities)
-
 
     def pareto(self) -> pd.DataFrame:
         """
@@ -217,7 +136,6 @@ class ParetoRoundOptimizeSortSelect:
         # optimize without fixed capacities
         fixed_capacities = pd.DataFrame(columns=["Edge", "u_b(e)", "u_c(e)", "capacity"])
 
-
         # initialize pareto result list
         pareto_df = []
 
@@ -225,7 +143,7 @@ class ParetoRoundOptimizeSortSelect:
         # iteratively add edges
         found_edge = True
 
-        def try_fixing_edge_as_bike(edge_to_transform) :
+        def try_fixing_edge_as_bike(edge_to_transform):
             """Tries to fix the edge as a bike lane. If this destroys strong connectivity, we return False, else
             return True and remove the edge from car_graph"""
             car_graph.remove_edge(*edge_to_transform)
@@ -246,7 +164,7 @@ class ParetoRoundOptimizeSortSelect:
                     cap_sorted = sort_by_rounding_error(capacities)
             found_edge = False
             # iterate over capacities until we find an edge that can be added
-            for (_, row) in cap_sorted.iterrows():
+            for _, row in cap_sorted.iterrows():
                 e = row["Edge"]
                 num_fixed_cars = 0
                 # check if e is even in the original graph -> otherwise wait for iteration with reversed edge
@@ -256,7 +174,7 @@ class ParetoRoundOptimizeSortSelect:
                 # iterate over the lanes of this edge and try to find one that can be converted
                 for key in list(dict(G_lane[e[0]][e[1]])):
                     edge_to_transform = (e[0], e[1], key)
-                    #If we rounded the car capacities, we want to guarantee at least this ammount of car lanes.
+                    # If we rounded the car capacities, we want to guarantee at least this ammount of car lanes.
                     if self.rounding_method == "lowest_rounding_error" and num_fixed_cars < row["u_c(e)"]:
                         num_fixed_cars += 1
                         is_fixed_car[edge_to_transform] = True
@@ -323,5 +241,3 @@ class ParetoRoundOptimizeSortSelect:
             )
             print(pareto_df[-1])
         return pd.DataFrame(pareto_df)
-
-

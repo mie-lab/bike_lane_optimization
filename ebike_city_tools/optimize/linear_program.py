@@ -2,14 +2,13 @@ import networkx as nx
 import pandas as pd
 import numpy as np
 from mip import mip, INTEGER, CONTINUOUS
-from ebike_city_tools.utils import compute_bike_time
+from ebike_city_tools.utils import compute_bike_time, valid_arcs_spatial_selection
 
 
 def define_IP(
     G,
     edges_bike_list=None,
     edges_car_list=None,
-    valid_edges_per_od_pair=None,
     fixed_edges=pd.DataFrame(),
     cap_factor=1,
     only_double_bikelanes=True,
@@ -21,6 +20,8 @@ def define_IP(
     weight_od_flow=False,
     integer_problem=False,
     car_weight=5,
+    valid_edges_k=None,
+    valid_edges_per_od_pair=None,
 ):
     """
     Allocates traffic lanes to the bike network or the car network by optimizing overall travel time
@@ -41,6 +42,8 @@ def define_IP(
         weight_od_flow: If True, the terms in the objective are weighted by the flow in the OD matrix
         integer_problem: if True, the flow variables are constraint to be integers
         car_weight: int, weighting of car travel time in the objective function
+        valid_edges_k: int, parameter k to choose a subset of the edges per OD-pair --> changes valid_edges_per_od_pair
+        valid_edges_per_od_pair: If the considered edges per OD pair are precomputed, use this variable.
     Returns: Dataframe with optimal edge capacity values for each network (bike and car)
     """
     if integer_problem:
@@ -75,6 +78,14 @@ def define_IP(
     else:
         # for now, just extract s t columns and ignore how much flow
         od_flow = od_df[["s", "t"]].values
+
+    # redue to k shortest path if valid_edges_k >0
+    if valid_edges_k is not None and valid_edges_k > 0:
+        print(f"VALID EDGES k={valid_edges_k} --> reducing number of considered edges")
+        # make auxiliarty od df if OD is not defined
+        od_df_valid_edges = od_df if od_df is not None else pd.DataFrame(od_flow, columns=["s", "t"])
+        # run spatial selection
+        valid_edges_per_od_pair = valid_arcs_spatial_selection(od_df_valid_edges, G, valid_edges_k)
 
     # If there are no arc restrictions specified, all arcs are feasible to take.
     def get_valid_edges_for_od_pair(s, t):

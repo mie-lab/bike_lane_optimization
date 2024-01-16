@@ -161,6 +161,7 @@ def pareto_frontier(
     sp_method="all_pairs",
     od_matrix=None,
     weight_od_flow=False,
+    valid_edges_k=None,
 ):
     """
     Round with different cutoffs and thereby compute pareto frontier
@@ -212,6 +213,7 @@ def pareto_frontier(
             sp_method=sp_method,
             shared_lane_factor=shared_lane_factor,
             weight_od_flow=weight_od_flow,
+            valid_edges_k=valid_edges_k,
         )
         travel_time_dict["bike_edges_added"] = bike_edges_to_add
         pareto_df.append(travel_time_dict)

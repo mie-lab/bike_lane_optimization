@@ -7,7 +7,6 @@ import pandas as pd
 from ebike_city_tools.synthetic import random_lane_graph, make_fake_od
 from ebike_city_tools.utils import lane_to_street_graph, extend_od_circular
 from ebike_city_tools.optimize.linear_program import define_IP
-from ebike_city_tools.optimize.round_optimized_sort_selection import determine_valid_arcs, valid_arcs_spatial_selection
 
 
 parser = argparse.ArgumentParser()
@@ -39,22 +38,20 @@ for graph_num, n in enumerate(graph_trial_size_list):
     for number_paths in NUMBER_PATHS_LIST:
         G = G_base.copy()
 
-        if number_paths > 0:
-            valid_arcs = valid_arcs_spatial_selection(od, G, number_paths)
-            # valid_arcs = determine_valid_arcs(od, G, number_paths)
-            number_valid_arcs = [len(arcs) for k, arcs in valid_arcs.items()]
-            print(number_paths, sum(number_valid_arcs), G.number_of_edges() * len(od))
-        else:
-            valid_arcs = None
-            number_valid_arcs = [G.number_of_edges() for _ in range(len(od))]
+        # # for logging the average / sum of the number of paths per OD pair
+        # if number_paths > 0:
+        #     number_valid_arcs = [len(arcs) for k, arcs in valid_arcs.items()]
+        # else:
+        #     number_valid_arcs = [G.number_of_edges() for _ in range(len(od))]
 
         # initialize and optimize with this od matrix
         tic = time.time()
+        # this is the main change -> use valid_edges_k argument
         ip = define_IP(
             G,
             cap_factor=1,
             od_df=od,
-            valid_edges_per_od_pair=valid_arcs,  # this is the main change -> only use valid arcs
+            valid_edges_k=number_paths,
             shared_lane_factor=SHARED_LANE_FACTOR,
             car_weight=CAR_WEIGHT,
         )
@@ -93,8 +90,8 @@ for graph_num, n in enumerate(graph_trial_size_list):
             "number_edges": G_base.number_of_edges(),
             "k_shortest_paths": number_paths,
             "od_pairs": len(od),
-            "sum_valid_arcs": sum(number_valid_arcs),
-            "mean_valid_arcs": np.mean(number_valid_arcs),
+            # "sum_valid_arcs": sum(number_valid_arcs),
+            # "mean_valid_arcs": np.mean(number_valid_arcs),
             "runtime_init": toc - tic,
             "runtime_optim": toc2 - toc,
         }
