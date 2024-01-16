@@ -21,7 +21,7 @@ algorithm_dict = {
 
 OPTIMIZE_EVERY_LIST = [100, 50, 25, 10, 5]
 CAR_WEIGHT_LIST = [0.1, 0.5, 1, 2, 4, 8]
-graph_trial_size_list = [20, 20, 20, 20, 30, 30, 30, 30, 40, 40, 40, 40, 50, 50, 50, 50, 60, 60, 60, 60]
+graph_trial_size_list = [20, 20, 20, 20, 20, 30, 30, 30, 30, 30, 40, 40, 40, 40, 40, 50, 50, 50, 50, 50]
 
 np.random.seed(42)
 

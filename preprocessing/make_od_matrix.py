@@ -109,6 +109,7 @@ def match_od_with_nodes(data_path: str) -> pd.DataFrame:
 
     nodes = gpd.read_file(os.path.join(data_path, "nodes_all_attributes.gpkg"))
     station_data = pd.read_csv(os.path.join(data_path, "raw_od_matrix", "od_whole_city.csv"))
+    print("Whole city OD matrix", len(station_data))
 
     # create linestring and convert to geodataframe
     station_data["geometry"] = station_data.apply(linestring_from_coords, axis=1)
@@ -135,6 +136,8 @@ def match_od_with_nodes(data_path: str) -> pd.DataFrame:
     # select only the rows where the linestring intersects the area polygon
     area_polygon = gpd.GeoDataFrame(geometry=[nodes.geometry.unary_union.convex_hull], crs=nodes.crs)
     trips = station_data.sjoin(area_polygon)
+
+    print("Number of trips intersetcing the area", len(trips))
 
     # get the closest nodes to the respective destination
     trips["geom_destination"] = gpd.points_from_xy(x=trips["end_lng"], y=trips["end_lat"])
