@@ -10,6 +10,8 @@ from ebike_city_tools.utils import (
     filter_by_attribute,
     output_to_dataframe,
     remove_node_attribute,
+    nodes_to_geodataframe,
+    match_od_with_nodes,
 )
 from ebike_city_tools.optimize.round_optimized import ParetoRoundOptimize
 
@@ -71,6 +73,7 @@ def lane_optimization(
     edge_fraction=0.1,
     optimize_params=OPTIMIZE_PARAMS,
     verbose=True,
+    crs=2056,
 ):
     """
     Optimizes bike lane allocation with LP approach - to be incorporated in SNMan
@@ -86,21 +89,21 @@ def lane_optimization(
     G_lane = adapt_edge_attributes(L)
     G_lane.remove_edges_from(nx.selfloop_edges(G_lane))
 
-    for u, v, d in G_lane.edges(data=True):
-        if pd.isna(d["gradient"]):
-            print("lane NAN")
+    # make OD matrix
+    node_gdf = nodes_to_geodataframe(G_lane, crs=crs)
+    od_df = match_od_with_nodes(
+        station_data_path="../street_network_data/birchplatz/raw_od_matrix/od_whole_city.csv", nodes=node_gdf
+    )
 
     if od_df is not None:
         od = od_df.copy()
     else:
         # Initialize od with empty dataframe
         od = pd.DataFrame(columns=["s", "t", "trips"])
-    # reduce OD matrix to nodes that are in G_lane
-    node_list = list(G_lane.nodes())
-    od = od[(od["s"].isin(node_list)) & (od["t"].isin(node_list))]
     # extend OD matrix because otherwise we get disconnected car graph
-    od = extend_od_circular(od, node_list)
-    od["trips"] = 1  # TODO
+    od = extend_od_circular(od, list(G_lane.nodes()))
+    if od_df is None:
+        od["trips"] = 1  # if all weightings are 0, it doesn't work, so we have to set it to 1 in this case
 
     print(
         f"---------------\nProcessing lane graph, {G_lane.number_of_edges()} edges and {G_lane.number_of_nodes()} nodes"

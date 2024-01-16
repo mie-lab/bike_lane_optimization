@@ -6,6 +6,8 @@ import pyproj
 import geopandas as gpd
 from shapely.geometry import LineString
 
+from ebike_city_tools.utils import match_od_with_nodes
+
 CH1903 = "epsg:21781"
 LV05 = CH1903
 CH1903_PLUS = "epsg:2056"
@@ -94,7 +96,7 @@ def zurich_preprocessing(data_path: str) -> None:
     station_data.to_csv(os.path.join(data_path, "raw_od_matrix", "od_whole_city.csv"), index=False)
 
 
-def match_od_with_nodes(data_path: str) -> pd.DataFrame:
+def match_od_with_nodes_path(data_path: str) -> pd.DataFrame:
     """
     Match a row OD matrix of coordinates with the node IDs
 
@@ -103,67 +105,9 @@ def match_od_with_nodes(data_path: str) -> pd.DataFrame:
     Returns:
         pd.DataFrame with columns s, t and trips, containint origin and destination node id and the number of trips
     """
-
-    def linestring_from_coords(row):
-        return LineString([[row["start_lng"], row["start_lat"]], [row["end_lng"], row["end_lat"]]])
-
     nodes = gpd.read_file(os.path.join(data_path, "nodes_all_attributes.gpkg"))
-    station_data = pd.read_csv(os.path.join(data_path, "raw_od_matrix", "od_whole_city.csv"))
-    print("Whole city OD matrix", len(station_data))
-
-    # create linestring and convert to geodataframe
-    station_data["geometry"] = station_data.apply(linestring_from_coords, axis=1)
-    station_data = gpd.GeoDataFrame(station_data)
-    station_data.set_geometry("geometry", inplace=True)
-
-    if "birchplatz" in data_path or "affoltern" in data_path:
-        original_crs = "EPSG:2056"
-        station_data.crs = original_crs
-        nodes.to_crs(2056, inplace=True)
-    else:
-        original_crs = "EPSG:4326"
-        station_data.crs = original_crs
-        if "cambridge" in data_path:
-            nodes.to_crs("EPSG:2249", inplace=True)
-            station_data.to_crs("EPSG:2249", inplace=True)
-        elif "chicago" in data_path:
-            nodes.to_crs("EPSG:26971", inplace=True)
-            station_data.to_crs("EPSG:26971", inplace=True)
-        else:
-            raise NotImplementedError("Unknown city")
-        station_data = station_data[station_data.geometry.is_valid]
-
-    # select only the rows where the linestring intersects the area polygon
-    area_polygon = gpd.GeoDataFrame(geometry=[nodes.geometry.unary_union.convex_hull], crs=nodes.crs)
-    trips = station_data.sjoin(area_polygon)
-
-    print("Number of trips intersetcing the area", len(trips))
-
-    # get the closest nodes to the respective destination
-    trips["geom_destination"] = gpd.points_from_xy(x=trips["end_lng"], y=trips["end_lat"])
-    trips.set_geometry("geom_destination", inplace=True, crs=original_crs)
-    trips.to_crs(nodes.crs, inplace=True)
-    trips = trips.sjoin_nearest(nodes, distance_col="dist_destination", how="left", lsuffix="", rsuffix="destination")
-    trips.rename(columns={"osmid": "osmid_destination"}, inplace=True)
-
-    # set geometry to origin
-    trips["geom_origin"] = gpd.points_from_xy(x=trips["start_lng"], y=trips["start_lat"])
-    # trips["geom_origin"].apply(wkt.loads)
-    trips.set_geometry("geom_origin", inplace=True, crs=original_crs)
-    trips.to_crs(nodes.crs, inplace=True)
-    trips.drop(["geom_destination"], axis=1, inplace=True)
-
-    # get the closest nodes to the respective origin
-    trips = trips.sjoin_nearest(nodes, distance_col="dist_origin", how="left", lsuffix="", rsuffix="origin")
-    trips.rename(columns={"osmid": "osmid_origin"}, inplace=True)
-    trips_final = (
-        trips.groupby(["osmid_origin", "osmid_destination"])
-        .agg({"count": "sum"})
-        .reset_index()
-        .rename(columns={"osmid_origin": "s", "osmid_destination": "t", "count": "trips"})
-    )
-    print(len(trips_final), trips_final["trips"].sum())
-    return trips_final
+    station_data_path = os.path.join(data_path, "raw_od_matrix", "od_whole_city.csv")
+    match_od_with_nodes(station_data_path, nodes)
 
 
 def reduce_od_by_trip_ratio(od: pd.DataFrame, trip_ratio: float = 0.75) -> pd.DataFrame:
@@ -203,7 +147,7 @@ if __name__ == "__main__":
     # bike_sharing_preprocessing(data_path)
 
     # create od matrix based on the graph nodes
-    od_matrix = match_od_with_nodes(data_path)
+    od_matrix = match_od_with_nodes_path(data_path)
 
     # for chicago and cambridge: reduce od matrix size to 75% most frequent trips
     if "chicago" in data_path or "cambridge" in data_path:
