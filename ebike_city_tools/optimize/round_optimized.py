@@ -1,3 +1,4 @@
+import time
 import pandas as pd
 import networkx as nx
 import numpy as np
@@ -33,13 +34,21 @@ class ParetoRoundOptimize:
         # transform to street graph
         self.G_street = lane_to_street_graph(G_lane)
 
+        # log the runtimes for optimizing
+        self.runtimes = {"time_init": [], "time_optim": []}
+
     def optimize(self, fixed_capacities):
         """
         Returns: newly optimized capacities
         """
+        tic = time.time()
         ip = define_IP(self.G_street, od_df=self.od, fixed_edges=fixed_capacities, **self.optimize_kwargs)
+        toc = time.time()
+        self.runtimes["time_init"].append(toc - tic)
         ip.verbose = False
         ip.optimize()
+        toc_optim = time.time()
+        self.runtimes["time_optim"].append(toc_optim - toc)
         return output_to_dataframe(ip, self.G_street, fixed_edges=fixed_capacities)
 
     def pareto(self, max_bike_edges=np.inf, return_list=False, return_graph=False) -> pd.DataFrame:

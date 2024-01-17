@@ -217,7 +217,9 @@ if __name__ == "__main__":
                 pareto_df = opt.pareto()
 
             print("Time pareto", time.time() - tic)
-            runtimes_pareto.append(time.time() - tic)
+            runtime_dict_from_pareto = opt.runtimes
+            runtime_dict_from_pareto["time_pareto"] = time.time() - tic
+            runtimes_pareto.append(runtime_dict_from_pareto)
         else:
             raise ValueError("Rounding method must be one of {round_bike_optimize, round_simple}")
 
