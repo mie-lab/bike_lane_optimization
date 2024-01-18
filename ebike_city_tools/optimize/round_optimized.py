@@ -55,12 +55,20 @@ class ParetoRoundOptimize:
         self.runtimes["time_optim"].append(toc_optim - toc)
         return output_to_dataframe(ip, self.G_street, fixed_edges=fixed_capacities)
 
-    def allocate_bike_edge(self, edge_to_transform, assert_greater_0=False):
-        """Helper function to fix a bike edge"""
+    def allocate_bike_edge(self, edge_to_transform, assert_greater_0=False, remove_from_car=False):
+        """
+        Helper function to fix a bike edge
+        -> Two use cases: for normal allocation of edges (default) or for allocating multilane bike edges-> in that case
+        we need ot assert that the remaining car capacities are at least 1, and we need to remove the car edge
+        """
         # Save in is_bike dictionary
         self.is_bike[edge_to_transform[:2]] = True  # lane is  bike lane
         new_edge = transform_car_to_bike_edge(self.modified_G_lane, edge_to_transform, self.shared_lane_factor)
         self.is_bike[new_edge[:2]] = True  # reversed lane is also bike lane
+
+        # remove from car graph if not done already
+        if remove_from_car:
+            self.car_graph.remove_edge(*edge_to_transform)
 
         # add to fixed capacities
         e = edge_to_transform[:2]
@@ -129,7 +137,7 @@ class ParetoRoundOptimize:
         self.fixed_capacities = pd.DataFrame(columns=["Edge", "u_b(e)", "u_c(e)", "capacity"])
         self.total_capacities = nx.get_edge_attributes(self.G_street, "capacity")
 
-    def pareto(self, max_bike_edges=np.inf, fix_multilane=False, return_list=False, return_graph=False) -> pd.DataFrame:
+    def pareto(self, max_bike_edges=np.inf, fix_multilane=True, return_list=False, return_graph=False) -> pd.DataFrame:
         """
         Computes the pareto frontier of bike and car travel times by rounding in batches
         This algorithm optimizes the capacity every x bike edges. Then, we iterate through the sorted bike capacities,
@@ -154,7 +162,7 @@ class ParetoRoundOptimize:
             edges_to_fix = fix_multilane_bike_lanes(self.G_lane, check_for_existing=False)
             # allocate them
             for e in edges_to_fix:
-                self.allocate_bike_edge(e, assert_greater_0=True)
+                self.allocate_bike_edge(e, assert_greater_0=True, remove_from_car=True)
             # add new situation to pareto frontier -> 0 actual edges added, but already x bike edges
             self.add_to_pareto(len(edges_to_fix), 0)
             print(pd.DataFrame(self.pareto_df))

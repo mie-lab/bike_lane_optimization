@@ -5,6 +5,7 @@ import numpy as np
 from ebike_city_tools.synthetic import random_lane_graph, make_fake_od
 from ebike_city_tools.optimize.round_optimized import ParetoRoundOptimize
 from ebike_city_tools.utils import lane_to_street_graph
+from ebike_city_tools.iterative_algorithms import betweenness_pareto
 
 OUT_PATH = "outputs"
 os.makedirs(OUT_PATH, exist_ok=True)
@@ -32,6 +33,7 @@ if __name__ == "__main__":
         shared_lane_factor=shared_lane_factor,
     )
     pareto_df = opt.pareto()
+    # pareto_df = betweenness_pareto(G_lane.copy(), od.copy(), "od", shared_lane_factor=2)
 
     # save to csv
     # pareto_df.to_csv(os.path.join(OUT_PATH, "test_pareto_df.csv"))
