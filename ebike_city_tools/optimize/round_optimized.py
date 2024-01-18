@@ -4,10 +4,8 @@ import networkx as nx
 import numpy as np
 
 from ebike_city_tools.optimize.linear_program import define_IP
-from ebike_city_tools.optimize.round_simple import edge_to_source_target
 from ebike_city_tools.utils import (
     lane_to_street_graph,
-    extend_od_circular,
     compute_car_time,
     compute_edgedependent_bike_time,
     output_to_dataframe,

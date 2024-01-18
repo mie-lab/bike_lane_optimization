@@ -308,7 +308,7 @@ def betweenness_pareto(
             new_edge = transform_car_to_bike_edge(G_lane, edge_to_transform, shared_lane_factor)
             is_bike_or_fixed[new_edge] = True
         # add new situation to pareto frontier -> 0 actual edges added, but already x bike edges
-        add_to_pareto(len(edges_to_fix), 0)
+        betweenness = add_to_pareto(len(edges_to_fix), 0)
         print(pd.DataFrame(pareto_df))
     else:
         edges_to_fix = []
@@ -344,7 +344,7 @@ def betweenness_pareto(
         is_bike_or_fixed[new_edge] = True
 
         # add to pareto frontier
-        add_to_pareto(len(edges_to_fix) + edges_removed, edges_removed)
+        betweenness = add_to_pareto(len(edges_to_fix) + edges_removed, edges_removed)
         print(pareto_df[-1])
     return pd.DataFrame(pareto_df)
 

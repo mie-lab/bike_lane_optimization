@@ -31,6 +31,7 @@ from snman.constants import (
 
 ROUNDING_METHOD = "round_bike_optimize"
 IGNORE_FIXED = True
+FIXED_MULTILANE = True
 FLOW_CONSTANT = 1  # how much flow to send through a path
 WEIGHT_OD_FLOW = False
 RATIO_BIKE_EDGES = 0.4
@@ -145,7 +146,12 @@ if __name__ == "__main__":
 
         # run betweenness centrality algorithm for comparison
         pareto_between = algorithm_func(
-            G_lane.copy(), sp_method=sp_method, od_matrix=od, weight_od_flow=WEIGHT_OD_FLOW, **kwargs
+            G_lane.copy(),
+            sp_method=sp_method,
+            od_matrix=od,
+            weight_od_flow=WEIGHT_OD_FLOW,
+            fixed_multilane=FIXED_MULTILANE,
+            **kwargs,
         )
         pareto_between.to_csv(os.path.join(out_path, f"real_pareto_{algorithm}{out_path_ending}.csv"), index=False)
         exit()
@@ -175,6 +181,7 @@ if __name__ == "__main__":
             sp_method=sp_method,
             shared_lane_factor=shared_lane_factor,
             weight_od_flow=WEIGHT_OD_FLOW,
+            fixed_multilane=FIXED_MULTILANE,
             valid_edges_k=args.valid_edges_k,
         )
         # if only one specific graph should be saved
