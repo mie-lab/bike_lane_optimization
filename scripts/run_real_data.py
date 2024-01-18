@@ -31,7 +31,7 @@ from snman.constants import (
 
 ROUNDING_METHOD = "round_bike_optimize"
 IGNORE_FIXED = True
-FIXED_MULTILANE = True
+FIX_MULTILANE = True
 FLOW_CONSTANT = 1  # how much flow to send through a path
 WEIGHT_OD_FLOW = False
 RATIO_BIKE_EDGES = 0.4
@@ -150,7 +150,7 @@ if __name__ == "__main__":
             sp_method=sp_method,
             od_matrix=od,
             weight_od_flow=WEIGHT_OD_FLOW,
-            fixed_multilane=FIXED_MULTILANE,
+            fix_multilane=FIX_MULTILANE,
             **kwargs,
         )
         pareto_between.to_csv(os.path.join(out_path, f"real_pareto_{algorithm}{out_path_ending}.csv"), index=False)
@@ -181,18 +181,17 @@ if __name__ == "__main__":
             sp_method=sp_method,
             shared_lane_factor=shared_lane_factor,
             weight_od_flow=WEIGHT_OD_FLOW,
-            fixed_multilane=FIXED_MULTILANE,
             valid_edges_k=args.valid_edges_k,
         )
         # if only one specific graph should be saved
         if args.save_graph:
             num_bike_edges = int(RATIO_BIKE_EDGES * G_lane.number_of_edges())
-            G_lane_output = opt.pareto(return_graph=True, max_bike_edges=num_bike_edges)
+            G_lane_output = opt.pareto(return_graph=True, fix_multilane=FIX_MULTILANE, max_bike_edges=num_bike_edges)
             edge_df = nx.to_pandas_edgelist(G_lane_output, edge_key="edge_key")
             edge_df.to_csv(os.path.join(out_path, "graph_edges.csv"), index=False)
             exit()
         else:
-            pareto_df = opt.pareto()
+            pareto_df = opt.pareto(fix_multilane=FIX_MULTILANE)
 
         # save runtimes
         print("Time pareto", time.time() - tic)

@@ -43,8 +43,8 @@ def adapt_edge_attributes(L: nx.MultiDiGraph, ignore_fixed=False):
     elevation_dict = nx.get_node_attributes(L, "elevation")  # can be empty, than flat assumed
     length_dict = nx.get_edge_attributes(L, "length")
     (gradient_attr, capacity_attr) = ({}, {})
-    for e, d in L.edges(data=True):
-        (u, v, _) = e  # TODO: remove loops
+    for u, v, k, d in L.edges(data=True, keys=True):
+        e = (u, v, k)  # returning u, v, key, data
         gradient_attr[e] = 100 * (elevation_dict.get(v, 0) - elevation_dict.get(u, 0)) / length_dict[e]
         capacity_attr[e] = 0.5 if "P" in d["lanetype"] else 1
     nx.set_edge_attributes(L, capacity_attr, name="capacity")

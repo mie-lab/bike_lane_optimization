@@ -307,6 +307,11 @@ def betweenness_pareto(
             # transform to bike lane -> update bike and car time
             new_edge = transform_car_to_bike_edge(G_lane, edge_to_transform, shared_lane_factor)
             is_bike_or_fixed[new_edge] = True
+            # # fix the other lane as a car edge
+            # multiedge_dict = dict(G_lane[edge_to_transform[0]][edge_to_transform[1]])
+            # del multiedge_dict[edge_to_transform[2]]  # remove key
+            # second_key = list(multiedge_dict.keys())[0]
+            # is_bike_or_fixed[(edge_to_transform[0], edge_to_transform[1], second_key)] = True
         # add new situation to pareto frontier -> 0 actual edges added, but already x bike edges
         betweenness = add_to_pareto(len(edges_to_fix), 0)
         print(pd.DataFrame(pareto_df))
