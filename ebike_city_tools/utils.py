@@ -148,6 +148,43 @@ def lane_to_street_graph(g_lane):
     return g_street
 
 
+def fix_multilane_bike_lanes(G_lane: nx.MultiDiGraph, check_for_existing: bool = False) -> list:
+    """
+    Takes a graph and converts one lane from all multi-lanes to a bike lane (if there is no bike lane yet)
+
+    Args:
+        G_lane (nx.MultiDiGraph): Input graph where some motorized lanes should be converted to bike lanes (inplace)
+        check_for_existing (bool): whether to check if there is an existing bike lane
+
+    Returns:
+        List of edges (u,v,key) to be fixed as bike edges
+    """
+    streets_already_with_bike = set()
+    edges_to_transform = []
+    for u in G_lane.nodes():
+        for v in G_lane.neighbors(u):
+            if G_lane.number_of_edges(u, v) > 1:
+                # if there is already a bike lane, skip (only if we don't reallocate existing bike lanes)
+                if check_for_existing and "lanetype" in G_lane[u][v].items():
+                    lanetypes = {k: d["lanetype"] for k, d in G_lane[u][v].items()}
+                    if any(["P" in l for l, l in lanetypes.items()]):
+                        continue
+                # check if there is already a bidirectional bike lane placed on this street
+                if (u, v) in streets_already_with_bike or (v, u) in streets_already_with_bike:
+                    continue
+                # iterate over the edges for this lane
+                for key in list(dict(G_lane[u][v]).keys()):
+                    # convert the first lane we see that is not fixed (if fixed lanes even exist)
+                    if ("fixed" not in G_lane[u][v][key]) or (not G_lane[u][v][key]["fixed"]):
+                        # G_lane[u][v][key]["lane"] = "P" # Transform directly?
+                        # G_lane[u][v][key]["lanetype"] = "P"
+                        edges_to_transform.append((u, v, key))
+                        streets_already_with_bike.add((u, v))
+                        # print("converted", u, v, key, "to bike lane")
+                        break
+    return edges_to_transform
+
+
 def deprecated_lane_to_street_graph(G_lane):
     # convert to dataframe
     G_dataframe = nx.to_pandas_edgelist(G_lane)
@@ -283,7 +320,7 @@ def compute_car_time(row):
 def compute_edgedependent_bike_time(row, shared_lane_factor: int = 2):
     """Following the formula from Parkin and Rotheram (2010)"""
     biketime = 60 * compute_bike_time(row["distance"], row["gradient"])
-    if row["lanetype"] == "P":
+    if "P" in row["lanetype"]:
         return biketime
     else:
         return biketime * shared_lane_factor
