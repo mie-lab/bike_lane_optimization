@@ -400,6 +400,7 @@ def topdown_betweenness_pareto(
     od_matrix=None,
     sp_method="all_pairs",
     shared_lane_factor=2,
+    fix_multilane=False,
     weight_od_flow=False,
 ):
     """
@@ -424,6 +425,13 @@ def topdown_betweenness_pareto(
         car_time[e] = compute_penalized_car_time(data)
     nx.set_edge_attributes(G_lane, bike_time, name="bike_time")
     nx.set_edge_attributes(G_lane, car_time, name="car_time")
+
+    # if multilane: get the set of edges that should never be transformed into car edges
+    if fix_multilane:
+        edges_to_fix = fix_multilane_bike_lanes(G_lane, check_for_existing=False)
+        for e in edges_to_fix:
+            # just pretend that they are car edges without transforming them --> will never be transformed
+            is_car_edge[e] = True
 
     # compute betweenness and bike travel time
     if sp_method == "all_pairs":
