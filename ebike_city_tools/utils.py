@@ -119,8 +119,6 @@ def lossless_to_undirected(graph):
 def lane_to_street_graph(g_lane):
     # transform into an undirected street graph
     g_street = nx.Graph(g_lane)
-    # aggregate capacities (they should be the same)
-    # caps = nx.get_edge_attributes(g_lane, "capacity")  # TODO
     caps_g_street = defaultdict(int)
     # iterate over the original edges and set capacities (same for forward and backward edge)
     for u, v, d in g_lane.edges(data=True):

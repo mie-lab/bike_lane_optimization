@@ -20,7 +20,7 @@ from ebike_city_tools.iterative_algorithms import betweenness_pareto, topdown_be
 from ebike_city_tools.optimize.wrapper import adapt_edge_attributes
 from ebike_city_tools.optimize.round_optimized import ParetoRoundOptimize
 
-from snman import distribution, street_graph, graph, io, merge_edges, lane_graph
+from snman import distribution, street_graph, graph, io, merge_edges, lane_graph, rebuilding
 from snman.constants import (
     KEY_LANES_DESCRIPTION,
     KEY_LANES_DESCRIPTION_AFTER,
@@ -58,10 +58,12 @@ def generate_motorized_lane_graph(
     # ensure consistent edge directions (only from lower to higher node!)
     street_graph.organize_edge_directions(G)
 
+    # # for using multi_set_given:
+    # if len(nx.get_edge_attributes(G, "grade")) == 0:
+    #     nx.set_edge_attributes(G, 0, "grade")
+    # rebuilding.multi_set_given_lanes(G)
     distribution.set_given_lanes(G)
-    H = street_graph.filter_lanes_by_modes(
-        G, {MODE_CYCLING, MODE_PRIVATE_CARS}, lane_description_key=KEY_GIVEN_LANES_DESCRIPTION
-    )
+    H = street_graph.filter_lanes_by_modes(G, {MODE_PRIVATE_CARS}, lane_description_key=KEY_GIVEN_LANES_DESCRIPTION)
 
     merge_edges.reset_intermediate_nodes(H)
     merge_edges.merge_consecutive_edges(H, distinction_attributes={KEY_LANES_DESCRIPTION_AFTER})
@@ -80,7 +82,7 @@ def generate_motorized_lane_graph(
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("-d", "--data_path", default="../street_network_data/zollikerberg", type=str)
+    parser.add_argument("-d", "--data_path", default="../street_network_data", type=str)
     parser.add_argument("-i", "--instance", default="affoltern", type=str)
     parser.add_argument("-o", "--out_path", default="outputs", type=str)
     parser.add_argument("-k", "--optimize_every_k", default=50, type=int, help="how often to re-optimize")

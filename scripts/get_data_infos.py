@@ -2,6 +2,7 @@ import os
 import numpy as np
 import geopandas as gpd
 import pandas as pd
+import networkx as nx
 
 from ebike_city_tools.utils import extend_od_circular
 from run_real_data import generate_motorized_lane_graph
@@ -46,6 +47,7 @@ if __name__ == "__main__":
                 "edges": G_lane.number_of_edges(),
                 "od": od_size_before_extend,
                 "od_after_extend": len(od),
+                "multi-edges": G_lane.number_of_edges() - nx.DiGraph(G_lane).number_of_edges(),
             }
         )
     res = pd.DataFrame(res)

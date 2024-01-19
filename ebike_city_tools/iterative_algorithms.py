@@ -182,6 +182,11 @@ def greedy_betweenness(lane_graph_inp, bike_edges_to_add=None):
 
 
 def od_betweenness_and_splength(G_lane, od_matrix, attr, weight_od_flow=False):
+    """
+    Own implementation of computing betweenness centrality
+    Computes the shortest path between each OD pair (weighted by bike_time or car_time (attr))
+
+    """
     # weight
     dist_per_edge = nx.get_edge_attributes(G_lane, attr)
     # set centrality to 0 in the beginnig
@@ -194,7 +199,14 @@ def od_betweenness_and_splength(G_lane, od_matrix, attr, weight_od_flow=False):
         path_length = 0
         # iterate overb path and aggregate betwenness and path length
         for i in range(len(shortest_path) - 1):
-            # TODO: divide centrality between several keys? makes sense for cars, not so much for bikes
+            # for each edge on the path, get the edge (from multiedges) that has the lowest attr value
+            # Case 1: car time: we remove the edge with lowest car betweenness centrality. Therefore, we give all the
+            # betweenness centrality to the one with lower car time. Once one edge is turned into a bike lane, the other
+            # one should survive.
+            # Case 2: bike time: We remove the edge with the highest bike betweenness centrality. We give all the
+            # betweenness centrality to the one with lower bike time, so that this edge is prioritized. Once one edge is
+            # turned into a bike lane, it will keep on having high centrality to prevent the other edge from dropping
+            # Case 3: top down: We remove the edge with the lowest bike betweenness centrality.
             min_val = np.inf
             for key, key_dict in G_lane[shortest_path[i]][shortest_path[i + 1]].items():  # this gives the keys
                 if key_dict[attr] < min_val:
