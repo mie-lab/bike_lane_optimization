@@ -145,6 +145,9 @@ if __name__ == "__main__":
         print(f"Running betweenness algorithm {algorithm}")
         # get algorithm method
         algorithm_func, kwargs = algorithm_dict[algorithm]
+        save_graph_path = (
+            os.path.join(out_path, f"{algorithm}{out_path_ending}") if args.save_graph is not None else None
+        )
 
         # run betweenness centrality algorithm for comparison
         pareto_between = algorithm_func(
@@ -153,6 +156,8 @@ if __name__ == "__main__":
             od_matrix=od,
             weight_od_flow=WEIGHT_OD_FLOW,
             fix_multilane=FIX_MULTILANE,
+            save_graph_path=save_graph_path,
+            save_graph_every_x=args.optimize_every_k,
             **kwargs,
         )
         pareto_between.to_csv(os.path.join(out_path, f"real_pareto_{algorithm}{out_path_ending}.csv"), index=False)
@@ -171,6 +176,9 @@ if __name__ == "__main__":
     for car_weight in [float(args.car_weight)]:  # [0.1, 0.25, 0.5, 1, 2, 4, 8]:
         print(f"Running LP for pareto frontier (car weight={car_weight})...")
 
+        # set the filename to save the results
+        fn_with_parameters = f"optimize{out_path_ending}_{car_weight}_{args.optimize_every_k}"
+
         # compute the paretor frontier
         tic = time.time()
 
@@ -185,15 +193,9 @@ if __name__ == "__main__":
             weight_od_flow=WEIGHT_OD_FLOW,
             valid_edges_k=args.valid_edges_k,
         )
-        # if only one specific graph should be saved
-        if args.save_graph:
-            num_bike_edges = int(RATIO_BIKE_EDGES * G_lane.number_of_edges())
-            G_lane_output = opt.pareto(return_graph=True, fix_multilane=FIX_MULTILANE, max_bike_edges=num_bike_edges)
-            edge_df = nx.to_pandas_edgelist(G_lane_output, edge_key="edge_key")
-            edge_df.to_csv(os.path.join(out_path, "graph_edges.csv"), index=False)
-            exit()
-        else:
-            pareto_df = opt.pareto(fix_multilane=FIX_MULTILANE)
+        # RUN pareto optimization, potentially with saving the graph after each optimization step
+        save_graph_path = os.path.join(out_path, fn_with_parameters) if args.save_graph else None
+        pareto_df = opt.pareto(fix_multilane=FIX_MULTILANE, save_graph_path=save_graph_path)
 
         # save runtimes
         print("Time pareto", time.time() - tic)
@@ -203,12 +205,12 @@ if __name__ == "__main__":
 
         # save to file
         pareto_df.to_csv(
-            os.path.join(out_path, f"real_pareto_optimize{out_path_ending}_{car_weight}_{args.optimize_every_k}.csv"),
+            os.path.join(out_path, f"real_pareto_{fn_with_parameters}.csv"),
             index=False,
         )
 
     # save runtimes
-    with open(os.path.join(out_path, f"runtime_pareto_{car_weight}_{args.optimize_every_k}.json"), "w") as outfile:
+    with open(os.path.join(out_path, f"runtime_pareto_{fn_with_parameters}.json"), "w") as outfile:
         json.dump(runtimes_pareto, outfile)
 
     # combine all pareto frontiers

@@ -1,4 +1,5 @@
 import time
+import os
 import pandas as pd
 import networkx as nx
 import numpy as np
@@ -135,7 +136,7 @@ class ParetoRoundOptimize:
         self.fixed_capacities = pd.DataFrame(columns=["Edge", "u_b(e)", "u_c(e)", "capacity"])
         self.total_capacities = nx.get_edge_attributes(self.G_street, "capacity")
 
-    def pareto(self, max_bike_edges=np.inf, fix_multilane=True, return_list=False, return_graph=False) -> pd.DataFrame:
+    def pareto(self, save_graph_path=None, fix_multilane=True, return_list=False) -> pd.DataFrame:
         """
         Computes the pareto frontier of bike and car travel times by rounding in batches
         This algorithm optimizes the capacity every x bike edges. Then, we iterate through the sorted bike capacities,
@@ -172,7 +173,7 @@ class ParetoRoundOptimize:
         found_edge = True
 
         # while we still find an edge to change
-        while found_edge and edges_removed < max_bike_edges:
+        while found_edge:
             # Re-optimize every x steps
             if edges_removed % self.optimize_every_x == 0:
                 # Run optimization
@@ -216,8 +217,16 @@ class ParetoRoundOptimize:
             # update pareto frontier
             self.add_to_pareto(len(edges_to_fix) + edges_removed, edges_removed)
 
-        if return_graph:
-            return self.modified_G_lane
+            # save graph with the same frequency as re-optimizing (always saved before reoptimizing)
+            if edges_removed % self.optimize_every_x == 0:
+                # always save the intermediate graph from a specific point onwards
+                if save_graph_path is not None and edges_removed > 20:
+                    # convert to dataframe
+                    edge_df = nx.to_pandas_edgelist(self.modified_G_lane, edge_key="edge_key")[
+                        ["source", "target", "edge_key", "fixed", "lanetype", "distance", "gradient", "speed_limit"]
+                    ]
+                    edge_df.to_csv(save_graph_path + f"_graph_{edges_removed}.csv", index=False)
+
         if return_list:
             return self.pareto_df
         return pd.DataFrame(self.pareto_df)

@@ -261,6 +261,8 @@ def betweenness_pareto(
     weight_od_flow=False,
     fix_multilane=False,
     betweenness_attr="car_time",
+    save_graph_path=None,
+    save_graph_every_x=50,
 ):
     """
     Arguments:
@@ -362,6 +364,14 @@ def betweenness_pareto(
 
         # add to pareto frontier
         betweenness = add_to_pareto(len(edges_to_fix) + edges_removed, edges_removed)
+
+        # save graph
+        if save_graph_path is not None and edges_removed % save_graph_every_x == 0:
+            edge_df = nx.to_pandas_edgelist(G_lane, edge_key="edge_key")[
+                ["source", "target", "edge_key", "fixed", "lanetype", "distance", "gradient", "speed_limit"]
+            ]
+            edge_df.to_csv(save_graph_path + f"_graph_{edges_removed}.csv", index=False)
+
         print(pareto_df[-1])
     return pd.DataFrame(pareto_df)
 
@@ -419,6 +429,8 @@ def topdown_betweenness_pareto(
     shared_lane_factor=2,
     fix_multilane=False,
     weight_od_flow=False,
+    save_graph_path=None,
+    save_graph_every_x=50,
 ):
     """
     Implements the algorithm from Steinacker et al where we start with a full bike network and iteratively remove bike
@@ -490,4 +502,11 @@ def topdown_betweenness_pareto(
             }
         )
         print(pareto_df[-1])
+
+        # save graph
+        if save_graph_path is not None and (edges_removed % save_graph_every_x == 0):
+            edge_df = nx.to_pandas_edgelist(G_lane, edge_key="edge_key")[
+                ["source", "target", "edge_key", "fixed", "lanetype", "distance", "gradient", "speed_limit"]
+            ]
+            edge_df.to_csv(save_graph_path + f"_graph_{edges_removed}.csv", index=False)
     return pd.DataFrame(pareto_df)
