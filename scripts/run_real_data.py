@@ -20,16 +20,18 @@ from ebike_city_tools.iterative_algorithms import betweenness_pareto, topdown_be
 from ebike_city_tools.optimize.wrapper import adapt_edge_attributes
 from ebike_city_tools.optimize.round_optimized import ParetoRoundOptimize
 
-from snman import distribution, street_graph, graph, io, merge_edges, lane_graph
+from snman import distribution, street_graph, graph, io, merge_edges, lane_graph, rebuilding
 from snman.constants import (
     KEY_LANES_DESCRIPTION,
     KEY_LANES_DESCRIPTION_AFTER,
     MODE_PRIVATE_CARS,
     KEY_GIVEN_LANES_DESCRIPTION,
+    MODE_CYCLING,
 )
 
 ROUNDING_METHOD = "round_bike_optimize"
 IGNORE_FIXED = True
+FIX_MULTILANE = True
 FLOW_CONSTANT = 1  # how much flow to send through a path
 WEIGHT_OD_FLOW = False
 RATIO_BIKE_EDGES = 0.4
@@ -56,6 +58,10 @@ def generate_motorized_lane_graph(
     # ensure consistent edge directions (only from lower to higher node!)
     street_graph.organize_edge_directions(G)
 
+    # # for using multi_set_given:
+    # if len(nx.get_edge_attributes(G, "grade")) == 0:
+    #     nx.set_edge_attributes(G, 0, "grade")
+    # rebuilding.multi_set_given_lanes(G)
     distribution.set_given_lanes(G)
     H = street_graph.filter_lanes_by_modes(G, {MODE_PRIVATE_CARS}, lane_description_key=KEY_GIVEN_LANES_DESCRIPTION)
 
@@ -76,7 +82,7 @@ def generate_motorized_lane_graph(
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("-d", "--data_path", default="../street_network_data/zollikerberg", type=str)
+    parser.add_argument("-d", "--data_path", default="../street_network_data", type=str)
     parser.add_argument("-i", "--instance", default="affoltern", type=str)
     parser.add_argument("-o", "--out_path", default="outputs", type=str)
     parser.add_argument("-k", "--optimize_every_k", default=50, type=int, help="how often to re-optimize")
@@ -115,6 +121,12 @@ if __name__ == "__main__":
     G_lane = generate_motorized_lane_graph(
         os.path.join(path, "edges_all_attributes.gpkg"), os.path.join(path, "nodes_all_attributes.gpkg")
     )
+    # save lane graph
+    # import pickle
+    # with open("real_lane_graph.p", "wb") as outfile:
+    #     pickle.dump(G_lane, outfile)
+    # # nx.write_gpickle(G_lane, "real_lane_graph.gpickle")
+    # exit()
 
     # load OD
     od = pd.read_csv(os.path.join(path, "od_matrix.csv"))
@@ -133,10 +145,20 @@ if __name__ == "__main__":
         print(f"Running betweenness algorithm {algorithm}")
         # get algorithm method
         algorithm_func, kwargs = algorithm_dict[algorithm]
+        save_graph_path = (
+            os.path.join(out_path, f"{algorithm}{out_path_ending}") if args.save_graph is not None else None
+        )
 
         # run betweenness centrality algorithm for comparison
         pareto_between = algorithm_func(
-            G_lane.copy(), sp_method=sp_method, od_matrix=od, weight_od_flow=WEIGHT_OD_FLOW, **kwargs
+            G_lane.copy(),
+            sp_method=sp_method,
+            od_matrix=od,
+            weight_od_flow=WEIGHT_OD_FLOW,
+            fix_multilane=FIX_MULTILANE,
+            save_graph_path=save_graph_path,
+            save_graph_every_x=args.optimize_every_k,
+            **kwargs,
         )
         pareto_between.to_csv(os.path.join(out_path, f"real_pareto_{algorithm}{out_path_ending}.csv"), index=False)
         exit()
@@ -153,84 +175,42 @@ if __name__ == "__main__":
     runtimes_pareto = []
     for car_weight in [float(args.car_weight)]:  # [0.1, 0.25, 0.5, 1, 2, 4, 8]:
         print(f"Running LP for pareto frontier (car weight={car_weight})...")
-        if ROUNDING_METHOD == "round_simple":
-            tic = time.time()
-            ip = define_IP(
-                G_street,
-                cap_factor=1,
-                od_df=od,
-                bike_flow_constant=FLOW_CONSTANT,
-                car_flow_constant=FLOW_CONSTANT,
-                shared_lane_factor=shared_lane_factor,
-                weight_od_flow=WEIGHT_OD_FLOW,
-                car_weight=car_weight,
-                valid_edges_k=args.valid_edges_k,
-            )
-            toc = time.time()
-            ip.optimize()
-            toc2 = time.time()
-            print("Time optimize", time.time() - tic)
 
-            # nx.write_gpickle(G, "outputs/real_G.gpickle")
-            capacity_values = output_to_dataframe(ip, G_street)
-            # capacity_values.to_csv(os.path.join(out_path, f"real_capacities_{car_weight}.csv"), index=False)
-            pareto_df = pareto_frontier(
-                G_lane,
-                capacity_values,
-                shared_lane_factor=shared_lane_factor,
-                sp_method=sp_method,
-                od_matrix=od,
-                weight_od_flow=WEIGHT_OD_FLOW,
-                valid_edges_k=args.valid_edges_k,
-            )
+        # set the filename to save the results
+        fn_with_parameters = f"optimize{out_path_ending}_{car_weight}_{args.optimize_every_k}"
 
-            if args.save_graph:
-                # set desired number of bike ed
-                num_bike_edges = int(RATIO_BIKE_EDGES * G_lane.number_of_edges())
-                bike_G, car_G = rounding_and_splitting(capacity_values, bike_edges_to_add=num_bike_edges)
-                G_lane_output = output_lane_graph(G_lane, bike_G, car_G, shared_lane_factor)
-                edge_df = nx.to_pandas_edgelist(G_lane_output, edge_key="edge_key")
-                edge_df.to_csv(os.path.join(out_path, "graph_edges.csv"), index=False)
-                exit()
-            del ip
-        elif ROUNDING_METHOD == "round_bike_optimize":
-            # compute the paretor frontier
-            tic = time.time()
+        # compute the paretor frontier
+        tic = time.time()
 
-            opt = ParetoRoundOptimize(
-                G_lane.copy(),
-                od.copy(),
-                optimize_every_x=args.optimize_every_k,
-                car_weight=car_weight,
-                sp_method=sp_method,
-                shared_lane_factor=shared_lane_factor,
-                weight_od_flow=WEIGHT_OD_FLOW,
-                valid_edges_k=args.valid_edges_k,
-            )
-            if args.save_graph:
-                num_bike_edges = int(RATIO_BIKE_EDGES * G_lane.number_of_edges())
-                G_lane_output = opt.pareto(return_graph=True, max_bike_edges=num_bike_edges)
-                edge_df = nx.to_pandas_edgelist(G_lane_output, edge_key="edge_key")
-                edge_df.to_csv(os.path.join(out_path, "graph_edges.csv"), index=False)
-                exit()
-            else:
-                pareto_df = opt.pareto()
+        # initialize Pareto optimizer
+        opt = ParetoRoundOptimize(
+            G_lane.copy(),
+            od.copy(),
+            optimize_every_x=args.optimize_every_k,
+            car_weight=car_weight,
+            sp_method=sp_method,
+            shared_lane_factor=shared_lane_factor,
+            weight_od_flow=WEIGHT_OD_FLOW,
+            valid_edges_k=args.valid_edges_k,
+        )
+        # RUN pareto optimization, potentially with saving the graph after each optimization step
+        save_graph_path = os.path.join(out_path, fn_with_parameters) if args.save_graph else None
+        pareto_df = opt.pareto(fix_multilane=FIX_MULTILANE, save_graph_path=save_graph_path)
 
-            print("Time pareto", time.time() - tic)
-            runtime_dict_from_pareto = opt.runtimes
-            runtime_dict_from_pareto["time_pareto"] = time.time() - tic
-            runtimes_pareto.append(runtime_dict_from_pareto)
-        else:
-            raise ValueError("Rounding method must be one of {round_bike_optimize, round_simple}")
+        # save runtimes
+        print("Time pareto", time.time() - tic)
+        runtime_dict_from_pareto = opt.runtimes
+        runtime_dict_from_pareto["time_pareto"] = time.time() - tic
+        runtimes_pareto.append(runtime_dict_from_pareto)
 
         # save to file
         pareto_df.to_csv(
-            os.path.join(out_path, f"real_pareto_optimize{out_path_ending}_{car_weight}_{args.optimize_every_k}.csv"),
+            os.path.join(out_path, f"real_pareto_{fn_with_parameters}.csv"),
             index=False,
         )
 
     # save runtimes
-    with open(os.path.join(out_path, f"runtime_pareto_{car_weight}_{args.optimize_every_k}.json"), "w") as outfile:
+    with open(os.path.join(out_path, f"runtime_pareto_{fn_with_parameters}.json"), "w") as outfile:
         json.dump(runtimes_pareto, outfile)
 
     # combine all pareto frontiers

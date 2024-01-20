@@ -2,11 +2,10 @@ import os
 import time
 import matplotlib.pyplot as plt
 import numpy as np
-from ebike_city_tools.optimize.iterative_rounding_and_resolving import iterative_rounding
-from ebike_city_tools.optimize.optimizer import Optimizer
 from ebike_city_tools.synthetic import random_lane_graph, make_fake_od
-from ebike_city_tools.optimize.round_simple import pareto_frontier
+from ebike_city_tools.optimize.round_optimized import ParetoRoundOptimize
 from ebike_city_tools.utils import lane_to_street_graph
+from ebike_city_tools.iterative_algorithms import betweenness_pareto, topdown_betweenness_pareto
 
 OUT_PATH = "outputs"
 os.makedirs(OUT_PATH, exist_ok=True)
@@ -24,27 +23,26 @@ if __name__ == "__main__":
     # max_paths_one_edge = len(od)  # maximum number of paths through one edge corresponds to number of OD-pairs
     # FACTOR_MAX_PATHS = 0.5  # only half of the paths are allowed to use the same street
     # cap_factor = max_paths_one_edge * FACTOR_MAX_PATHS
+    opt = ParetoRoundOptimize(
+        G_lane.copy(),
+        od.copy(),
+        optimize_every_x=100,
+        car_weight=2,
+        sp_method="od",
+        only_double_bikelanes=True,
+        shared_lane_factor=shared_lane_factor,
+    )
+    pareto_df = opt.pareto()
+    # pareto_df = betweenness_pareto(G_lane.copy(), od.copy(), "od", shared_lane_factor=2)
+    # pareto_df = topdown_betweenness_pareto(G_lane.copy(), od.copy(), "od", shared_lane_factor=2, fix_multilane=True)
 
-    optim = Optimizer(graph=G_street, od_matrix=od, car_weight=5, shared_lane_factor=shared_lane_factor)
-    pareto_fronts = iterative_rounding(optim, G_lane, shared_lane_factor)
-
-    if optim.lp.objective_value is not None:
-        capacity_values, flow_df = optim.get_solution(return_flow=True)
-
-        flow_df.to_csv(os.path.join(OUT_PATH, "test_flow_solution.csv"), index=False)
-        capacity_values.to_csv(os.path.join(OUT_PATH, "test_lp_solution.csv"), index=False)
-
-    # for linear, we hto compute the paretor frontier
-    # pareto_df = pareto_frontier(G_lane, capacity_values, shared_lane_factor=shared_lane_factor)
+    # save to csv
     # pareto_df.to_csv(os.path.join(OUT_PATH, "test_pareto_df.csv"))
 
     # plot pareto frontier
-    for idx, pareto_df in enumerate(pareto_fronts):
-        plt.scatter(pareto_df["bike_time"], pareto_df["car_time"], label=idx)
-    plt.legend()
+    plt.scatter(pareto_df["bike_time"], pareto_df["car_time"])
     # plt.savefig("comparison_front.png")
     plt.show()
 
-    print("OPT VALUE", optim.lp.objective_value)
     # save the new graph --> undirected
     # nx.write_gpickle(G, "outputs/test_G_random.gpickle")

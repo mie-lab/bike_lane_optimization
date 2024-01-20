@@ -8,6 +8,7 @@ from ebike_city_tools.utils import (
     compute_edgedependent_bike_time,
     compute_car_time,
     compute_penalized_car_time,
+    fix_multilane_bike_lanes,
 )
 
 
@@ -181,6 +182,11 @@ def greedy_betweenness(lane_graph_inp, bike_edges_to_add=None):
 
 
 def od_betweenness_and_splength(G_lane, od_matrix, attr, weight_od_flow=False):
+    """
+    Own implementation of computing betweenness centrality
+    Computes the shortest path between each OD pair (weighted by bike_time or car_time (attr))
+
+    """
     # weight
     dist_per_edge = nx.get_edge_attributes(G_lane, attr)
     # set centrality to 0 in the beginnig
@@ -193,7 +199,14 @@ def od_betweenness_and_splength(G_lane, od_matrix, attr, weight_od_flow=False):
         path_length = 0
         # iterate overb path and aggregate betwenness and path length
         for i in range(len(shortest_path) - 1):
-            # TODO: divide centrality between several keys? makes sense for cars, not so much for bikes
+            # for each edge on the path, get the edge (from multiedges) that has the lowest attr value
+            # Case 1: car time: we remove the edge with lowest car betweenness centrality. Therefore, we give all the
+            # betweenness centrality to the one with lower car time. Once one edge is turned into a bike lane, the other
+            # one should survive.
+            # Case 2: bike time: We remove the edge with the highest bike betweenness centrality. We give all the
+            # betweenness centrality to the one with lower bike time, so that this edge is prioritized. Once one edge is
+            # turned into a bike lane, it will keep on having high centrality to prevent the other edge from dropping
+            # Case 3: top down: We remove the edge with the lowest bike betweenness centrality.
             min_val = np.inf
             for key, key_dict in G_lane[shortest_path[i]][shortest_path[i + 1]].items():  # this gives the keys
                 if key_dict[attr] < min_val:
@@ -246,21 +259,42 @@ def betweenness_pareto(
     sp_method="all_pairs",
     shared_lane_factor=2,
     weight_od_flow=False,
+    fix_multilane=False,
     betweenness_attr="car_time",
+    save_graph_path=None,
+    save_graph_every_x=50,
 ):
     """
     Arguments:
         betweenness_attr: String, if car_time, we remove edges with the minimum car_time betweenness centralityk if bike_time, we
             remove edges with the highest bike_time betwenness centrality
     """
+    # initialize pareto
+    pareto_df = []
     assert betweenness_attr in ["car_time", "bike_time"]
     # we need the car graph only to check for strongly connected
     car_graph = G_lane.copy()
-
+    # get fixed attribute
     is_bike_or_fixed = nx.get_edge_attributes(G_lane, "fixed")
 
-    # set lanetype to car
+    # set lanetype to car for all edges initially
     nx.set_edge_attributes(G_lane, "M>", name="lanetype")
+
+    def add_to_pareto(bike_edges, added_edges):
+        # compute SP wrt car time or bike time and wrt OD matrix possibly
+        betweenness, car_travel_time, bike_travel_time = compute_betweenness_and_splength(
+            G_lane, betweenness_attr, od_matrix=od_matrix, sp_method=sp_method, weight_od_flow=weight_od_flow
+        )
+        pareto_df.append(
+            {
+                "bike_edges_added": added_edges,
+                "bike_edges": bike_edges,
+                "car_edges": car_graph.number_of_edges(),
+                "bike_time": bike_travel_time,
+                "car_time": car_travel_time,
+            }
+        )
+        return betweenness
 
     # set car and bike time attributes of the graph (starting from a graph with only cars)
     car_time, bike_time = {}, {}
@@ -271,20 +305,32 @@ def betweenness_pareto(
     nx.set_edge_attributes(G_lane, car_time, name="car_time")
     nx.set_edge_attributes(G_lane, bike_time, name="bike_time")
 
-    # compute SP wrt car time or bike time and wrt OD matrix possibly
-    betweenness, car_travel_time, bike_travel_time = compute_betweenness_and_splength(
-        G_lane, betweenness_attr, od_matrix=od_matrix, sp_method=sp_method, weight_od_flow=weight_od_flow
-    )
-    # initialize pareto result list
-    pareto_df = [
-        {
-            "bike_edges_added": 0,
-            "bike_edges": 0,
-            "car_edges": G_lane.number_of_edges(),
-            "bike_time": bike_travel_time,
-            "car_time": car_travel_time,
-        }
-    ]
+    # add first entry to pareto frontier with 0 edges added
+    betweenness = add_to_pareto(0, 0)
+
+    # fix edges that are multilane as one bike edge
+    if fix_multilane:
+        edges_to_fix = fix_multilane_bike_lanes(G_lane, check_for_existing=False)
+        # allocate them
+        for edge_to_transform in edges_to_fix:
+            # mark edge as checked
+            is_bike_or_fixed[edge_to_transform] = True
+            # check if edge can be removed, if not, add it back, mark as fixed and continue
+            car_graph.remove_edge(*edge_to_transform)
+            assert nx.is_strongly_connected(car_graph)
+            # transform to bike lane -> update bike and car time
+            new_edge = transform_car_to_bike_edge(G_lane, edge_to_transform, shared_lane_factor)
+            is_bike_or_fixed[new_edge] = True
+            # # fix the other lane as a car edge
+            # multiedge_dict = dict(G_lane[edge_to_transform[0]][edge_to_transform[1]])
+            # del multiedge_dict[edge_to_transform[2]]  # remove key
+            # second_key = list(multiedge_dict.keys())[0]
+            # is_bike_or_fixed[(edge_to_transform[0], edge_to_transform[1], second_key)] = True
+        # add new situation to pareto frontier -> 0 actual edges added, but already x bike edges
+        betweenness = add_to_pareto(len(edges_to_fix), 0)
+        print(pd.DataFrame(pareto_df))
+    else:
+        edges_to_fix = []
 
     edges_removed = 0
     # max_iters = car_graph.number_of_edges() * 10
@@ -316,19 +362,16 @@ def betweenness_pareto(
         new_edge = transform_car_to_bike_edge(G_lane, edge_to_transform, shared_lane_factor)
         is_bike_or_fixed[new_edge] = True
 
-        # compute new travel times
-        betweenness, car_travel_time, bike_travel_time = compute_betweenness_and_splength(
-            G_lane, betweenness_attr, od_matrix=od_matrix, sp_method=sp_method, weight_od_flow=weight_od_flow
-        )
-        pareto_df.append(
-            {
-                "bike_edges_added": edges_removed,
-                "bike_edges": edges_removed,
-                "car_edges": car_graph.number_of_edges(),
-                "bike_time": bike_travel_time,
-                "car_time": car_travel_time,
-            }
-        )
+        # add to pareto frontier
+        betweenness = add_to_pareto(len(edges_to_fix) + edges_removed, edges_removed)
+
+        # save graph
+        if save_graph_path is not None and edges_removed % save_graph_every_x == 0:
+            edge_df = nx.to_pandas_edgelist(G_lane, edge_key="edge_key")[
+                ["source", "target", "edge_key", "fixed", "lanetype", "distance", "gradient", "speed_limit"]
+            ]
+            edge_df.to_csv(save_graph_path + f"_graph_{edges_removed}.csv", index=False)
+
         print(pareto_df[-1])
     return pd.DataFrame(pareto_df)
 
@@ -384,7 +427,10 @@ def topdown_betweenness_pareto(
     od_matrix=None,
     sp_method="all_pairs",
     shared_lane_factor=2,
+    fix_multilane=False,
     weight_od_flow=False,
+    save_graph_path=None,
+    save_graph_every_x=50,
 ):
     """
     Implements the algorithm from Steinacker et al where we start with a full bike network and iteratively remove bike
@@ -408,6 +454,13 @@ def topdown_betweenness_pareto(
         car_time[e] = compute_penalized_car_time(data)
     nx.set_edge_attributes(G_lane, bike_time, name="bike_time")
     nx.set_edge_attributes(G_lane, car_time, name="car_time")
+
+    # if multilane: get the set of edges that should never be transformed into car edges
+    if fix_multilane:
+        edges_to_fix = fix_multilane_bike_lanes(G_lane, check_for_existing=False)
+        for e in edges_to_fix:
+            # just pretend that they are car edges without transforming them --> will never be transformed
+            is_car_edge[e] = True
 
     # compute betweenness and bike travel time
     if sp_method == "all_pairs":
@@ -449,4 +502,11 @@ def topdown_betweenness_pareto(
             }
         )
         print(pareto_df[-1])
+
+        # save graph
+        if save_graph_path is not None and (edges_removed % save_graph_every_x == 0):
+            edge_df = nx.to_pandas_edgelist(G_lane, edge_key="edge_key")[
+                ["source", "target", "edge_key", "fixed", "lanetype", "distance", "gradient", "speed_limit"]
+            ]
+            edge_df.to_csv(save_graph_path + f"_graph_{edges_removed}.csv", index=False)
     return pd.DataFrame(pareto_df)

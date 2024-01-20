@@ -30,8 +30,6 @@ OPTIMIZE_PARAMS = {
 
 def adapt_edge_attributes(L: nx.MultiDiGraph, ignore_fixed=False):
     """Sets new edge attributes to be used in the optimization algorithm"""
-    # add capacity attribute to 1 for all lanes
-    nx.set_edge_attributes(L, 1, name="capacity")
 
     # rename to distance
     distances = nx.get_edge_attributes(L, "length")
@@ -41,13 +39,16 @@ def adapt_edge_attributes(L: nx.MultiDiGraph, ignore_fixed=False):
     if ignore_fixed:
         nx.set_edge_attributes(L, False, "fixed")
 
-    # add gradient attribute
+    # add capacity and gradient attribute
     elevation_dict = nx.get_node_attributes(L, "elevation")  # can be empty, than flat assumed
     length_dict = nx.get_edge_attributes(L, "length")
-    gradient_attr, speed_limit_attr = {}, {}
-    for e in L.edges:
-        (u, v, _) = e  # TODO: remove loops
+    (gradient_attr, capacity_attr) = ({}, {})
+    for u, v, k, d in L.edges(data=True, keys=True):
+        e = (u, v, k)  # returning u, v, key, data
         gradient_attr[e] = 100 * (elevation_dict.get(v, 0) - elevation_dict.get(u, 0)) / length_dict[e]
+        capacity_attr[e] = 0.5 if "P" in d["lanetype"] else 1
+    nx.set_edge_attributes(L, capacity_attr, name="capacity")
+    nx.set_edge_attributes(L, gradient_attr, name="gradient")
 
     # add location to node coordinates
     x_dict, y_dict = nx.get_node_attributes(L, "x"), nx.get_node_attributes(L, "y")
@@ -59,7 +60,6 @@ def adapt_edge_attributes(L: nx.MultiDiGraph, ignore_fixed=False):
     # replace NaNs
     speed_limit_attr = {k: v if not pd.isna(v) else 30 for k, v in speed_limit_attr.items()}
     nx.set_edge_attributes(L, speed_limit_attr, name="speed_limit")
-    nx.set_edge_attributes(L, gradient_attr, name="gradient")
 
     return L
 

@@ -20,7 +20,7 @@ def ceiled_car_graph(result_df):
     street_df["u_c(e)"] = np.ceil(street_df["u_c(e)"])
     street_df["u_c(e)_reversed"] = np.ceil(street_df["u_c(e)_reversed"])
 
-    # identify problematic rows and fix them -> TODO: does lead to unconnected graph sometimes
+    # identify problematic rows and fix them -> Attention: does lead to unconnected graph sometimes
     row_is_problem = street_df["u_c(e)"] + street_df["u_c(e)_reversed"] > street_df["capacity"]
     fixed_rows = street_df[row_is_problem].apply(decrease_problematic, axis=1)
     fixed_street_df = pd.concat([fixed_rows, street_df[~row_is_problem]])
@@ -213,7 +213,6 @@ def pareto_frontier(
             sp_method=sp_method,
             shared_lane_factor=shared_lane_factor,
             weight_od_flow=weight_od_flow,
-            valid_edges_k=valid_edges_k,
         )
         travel_time_dict["bike_edges_added"] = bike_edges_to_add
         pareto_df.append(travel_time_dict)

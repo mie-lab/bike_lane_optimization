@@ -57,14 +57,17 @@ def define_IP(
     edge_index_mapping = {e: i for i, e in enumerate(edge_list)}
 
     # convert fixed edge_list
-    fixed_edge_list = []
-    if fixed_edges.shape[1] > 0:
-        fixed_edge_list = fixed_edges["Edge"].values.tolist()
+    fixed_edge_list = fixed_edges["Edge"].values.tolist() if len(fixed_edges) > 0 else []
+    # map from edge to index in dataframe
+    index_mapping_fixed_edges = {row["Edge"]: i for i, row in fixed_edges.iterrows()}
 
     if edges_bike_list is None:
         edges_bike_list = list(set(edge_list) - set(fixed_edge_list))
         edges_car_list = edges_bike_list  # TODO: remove if we change the rounding algorithm
     edges_car_bike_list = list(set(edges_bike_list) | set(edges_car_list))
+    # make index mapping to retrieve the variables easier
+    index_mapping_edges_car = {e: i for i, e in enumerate(edges_car_list)}
+    index_mapping_edges_bike = {e: i for i, e in enumerate(edges_bike_list)}
 
     node_list = list(G.nodes)
     number_nodes = len(G.nodes)
@@ -185,20 +188,17 @@ def define_IP(
             return 0
 
     def u_b(e):
-        if e in fixed_edge_list:
-            row = fixed_edges.loc[fixed_edges["Edge"] == e]
-            u_b = row["u_b(e)"].values[0]
-            return u_b
+        # check if e is a key in the fixed edges dictionary
+        if e in index_mapping_fixed_edges:
+            return fixed_edges.loc[index_mapping_fixed_edges[e], "u_b(e)"]
         else:
-            return cap_bike[edges_bike_list.index(e)]
+            return cap_bike[index_mapping_edges_bike[e]]
 
     def u_c(e):
-        if e in fixed_edge_list:
-            row = fixed_edges.loc[fixed_edges["Edge"] == e]
-            u_c = row["u_c(e)"].values[0]
-            return u_c
+        if e in index_mapping_fixed_edges:
+            return fixed_edges.loc[index_mapping_fixed_edges[e], "u_c(e)"]
         else:
-            return cap_car[edges_car_list.index(e)]
+            return cap_car[index_mapping_edges_car[e]]
 
     for v in node_list:
         for od_ind, (s, t) in enumerate(od_flow):
