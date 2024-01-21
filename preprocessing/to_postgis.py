@@ -78,8 +78,10 @@ con_mie = create_engine("postgresql+psycopg2://", creator=get_con_mie)
 
 if __name__ == "__main__":
     IN_PATH_DATA = "../street_network_data/"
-    IN_PATH_OUTPUTS = "outputs"
-    for instance in ["affoltern", "cambridge_1"]:
+    IN_PATH_OUTPUTS = "outputs/cluster_graphs"
+    for instance in os.listdir(IN_PATH_OUTPUTS):
+        if instance[0] == ".":
+            continue
         # 2) Process nodes
         nodes = gpd.read_file(os.path.join(IN_PATH_DATA, instance, "nodes_all_attributes.gpkg"))
         save_nodes = nodes.rename({"osmid": "node"}, axis=1).drop(
@@ -94,6 +96,21 @@ if __name__ == "__main__":
 
         for f in os.listdir(os.path.join(IN_PATH_OUTPUTS, instance)):
             if not "csv" in f or not "graph" in f:
+                continue
+
+            # get number of edges allocated
+            params_from_name = f[:-4].split("_")
+            edges_allocated, car_weight = int(params_from_name[-1]), params_from_name[-4]
+            try:
+                if float(car_weight) >= 1:
+                    car_weight = str(int(float(car_weight)))
+                algorithm = f"carweight{car_weight}"
+            except ValueError:
+                car_weight = "1"
+                algorithm = "betweenness"
+
+            # RESTRICT HERE
+            if edges_allocated % 100 != 0 or "topdown" in f or "cartime" in f or car_weight not in ["1", "4"]:
                 continue
             # print("processing", instance, f)
 
@@ -116,11 +133,6 @@ if __name__ == "__main__":
             )
             save_graph = gpd.GeoDataFrame(save_graph, geometry="geometry", crs=edge_geometries.crs)
 
-            params_from_name = f[:-4].split("_")
-            edges_allocated, car_weight = params_from_name[-1], params_from_name[-4]
-            if float(car_weight) >= 1:
-                car_weight = str(int(float(car_weight)))
-
-            out_name = f"edges_carweight{car_weight}_bikelanes{edges_allocated}"
+            out_name = f"edges_{algorithm}_bikelanes{edges_allocated}"
             save_graph.to_postgis(f"{instance}_{out_name}", con_mie, schema="graphs", if_exists="replace", index=False)
             print("Written graph to database", f"{instance}_{out_name}")
