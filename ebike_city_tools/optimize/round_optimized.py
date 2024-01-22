@@ -44,15 +44,36 @@ class ParetoRoundOptimize:
         """
         Returns: newly optimized capacities
         """
-        tic = time.time()
-        ip = define_IP(self.G_street, od_df=self.od, fixed_edges=fixed_capacities, **self.optimize_kwargs)
-        toc = time.time()
+        obj_value = None
+        ip = None
+        iter = 0
+        # increase considered number of edges until we have a valid solution
+        while obj_value is None:
+            if iter >= 1:
+                old_valid_edges = self.optimize_kwargs.get("valid_edges_k", 0)
+                assert old_valid_edges >= 0, "Problem: obj value None despite no restriction on valid edges!"
+                assert old_valid_edges <= 1000, "Error: stopping because no solution found even with valid edges = 1000"
+                print(f"Objective value was None with valid_edges={old_valid_edges}, trying again with increased k")
+                self.optimize_kwargs["valid_edges_k"] = old_valid_edges * 2
+            # clean IP variable
+            del ip
+            # initialize
+            tic = time.time()
+            ip = define_IP(self.G_street, od_df=self.od, fixed_edges=fixed_capacities, **self.optimize_kwargs)
+            toc = time.time()
+            ip.verbose = False
+            # optimize
+            ip.optimize()
+            obj_value = ip.objective_value
+            toc_optim = time.time()
+            iter += 1  # increase counter
+
+        # log runtimes
         self.runtimes["time_init"].append(toc - tic)
-        ip.verbose = False
-        ip.optimize()
-        toc_optim = time.time()
         self.runtimes["time_optim"].append(toc_optim - toc)
-        return output_to_dataframe(ip, self.G_street, fixed_edges=fixed_capacities)
+        # create output dataframe
+        optimized_capacities = output_to_dataframe(ip, self.G_street, fixed_edges=fixed_capacities)
+        return optimized_capacities
 
     def allocate_bike_edge(self, edge_to_transform, assert_greater_0=False, remove_from_car=False):
         """
