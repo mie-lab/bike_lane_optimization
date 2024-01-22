@@ -107,7 +107,7 @@ def match_od_with_nodes_path(data_path: str) -> pd.DataFrame:
     """
     nodes = gpd.read_file(os.path.join(data_path, "nodes_all_attributes.gpkg"))
     station_data_path = os.path.join(data_path, "raw_od_matrix", "od_whole_city.csv")
-    match_od_with_nodes(station_data_path, nodes)
+    return match_od_with_nodes(station_data_path, nodes)
 
 
 def reduce_od_by_trip_ratio(od: pd.DataFrame, trip_ratio: float = 0.75) -> pd.DataFrame:
@@ -139,7 +139,7 @@ def reduce_od_by_trip_ratio(od: pd.DataFrame, trip_ratio: float = 0.75) -> pd.Da
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("-d", "--data_path", default="../street_network_data/affoltern", type=str)
-    parser.add_argument("-r", "--trip_ratio", default=0.75, type=float)
+    parser.add_argument("-r", "--trip_ratio", default=0.8, type=float)
     args = parser.parse_args()
 
     data_path = args.data_path

@@ -52,4 +52,4 @@ if __name__ == "__main__":
             }
         )
     res = pd.DataFrame(res)
-    res.to_csv("figures/data_info_mylanegraph.csv", index=False)
+    res.to_csv("figures/data_info.csv", index=False)

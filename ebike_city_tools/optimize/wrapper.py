@@ -113,7 +113,7 @@ def adapt_edge_attributes(L: nx.MultiDiGraph, ignore_fixed=False):
 def lane_optimization(
     G_lane,
     od_df: pd.DataFrame = None,
-    edge_fraction: float = 0.1,
+    edge_fraction: float = 0.4,
     optimize_params: dict = OPTIMIZE_PARAMS,
     fix_multilane: bool = True,
 ) -> nx.MultiDiGraph:
@@ -170,6 +170,7 @@ def lane_optimization_snman(
         node_gdf = nodes_to_geodataframe(G_lane, crs=crs)
         od_df = match_od_with_nodes(station_data_path=od_df_path, nodes=node_gdf)
     else:
+        od_df = None
         warnings.warn("Attention: The path to a city-wide OD-matrix does not exist, so we are using a random OD")
 
     new_lane_graph = lane_optimization(
