@@ -5,7 +5,7 @@ import pandas as pd
 import networkx as nx
 
 from ebike_city_tools.utils import extend_od_circular
-from run_real_data import generate_motorized_lane_graph
+from ebike_city_tools.graph_utils import load_lane_graph, keep_only_the_largest_connected_component
 
 if __name__ == "__main__":
     res = []
@@ -20,13 +20,14 @@ if __name__ == "__main__":
         "chicago_2",
         "chicago",
     ]:
+        print("getting infos for city", city)
         path = os.path.join("..", "street_network_data", city)
         np.random.seed(42)  # random seed for extending the od matrix
         # generate lane graph with snman
         edge_len_initial = len(gpd.read_file(os.path.join(path, "edges_all_attributes.gpkg")))
-        G_lane = generate_motorized_lane_graph(
-            os.path.join(path, "edges_all_attributes.gpkg"), os.path.join(path, "nodes_all_attributes.gpkg")
-        )
+
+        G_lane = load_lane_graph(path)
+        G_lane = keep_only_the_largest_connected_component(G_lane)
 
         # load OD
         od = pd.read_csv(os.path.join(path, "od_matrix.csv"))
@@ -51,4 +52,4 @@ if __name__ == "__main__":
             }
         )
     res = pd.DataFrame(res)
-    res.to_csv("figures/data_info.csv", index=False)
+    res.to_csv("figures/data_info_mylanegraph.csv", index=False)

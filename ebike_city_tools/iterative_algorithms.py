@@ -4,12 +4,12 @@ import numpy as np
 from collections import defaultdict
 
 from ebike_city_tools.utils import (
-    lossless_to_undirected,
     compute_edgedependent_bike_time,
     compute_car_time,
     compute_penalized_car_time,
     fix_multilane_bike_lanes,
 )
+from ebike_city_tools.graph_utils import lossless_to_undirected
 
 
 def extract_spanning_tree(G):

@@ -2,18 +2,24 @@ import networkx as nx
 import pandas as pd
 import numpy as np
 
-from ebike_city_tools.optimize.linear_program import define_IP
 from ebike_city_tools.utils import (
-    lane_to_street_graph,
     extend_od_circular,
-    output_lane_graph,
-    filter_by_attribute,
-    output_to_dataframe,
-    remove_node_attribute,
-    nodes_to_geodataframe,
     match_od_with_nodes,
 )
+from ebike_city_tools.graph_utils import (
+    filter_by_attribute,
+    remove_node_attribute,
+    nodes_to_geodataframe,
+)
 from ebike_city_tools.optimize.round_optimized import ParetoRoundOptimize
+from snman import distribution, street_graph, graph, io, merge_edges, lane_graph, rebuilding
+from snman.constants import (
+    KEY_LANES_DESCRIPTION,
+    KEY_LANES_DESCRIPTION_AFTER,
+    MODE_PRIVATE_CARS,
+    KEY_GIVEN_LANES_DESCRIPTION,
+    MODE_CYCLING,
+)
 
 
 OPTIMIZE_PARAMS = {
@@ -26,6 +32,44 @@ OPTIMIZE_PARAMS = {
     "shared_lane_factor": 2,
     "weight_od_flow": False,
 }
+IGNORE_FIXED = False
+
+
+def generate_motorized_lane_graph(
+    edge_path,
+    node_path,
+    source_lanes_attribute=KEY_LANES_DESCRIPTION,
+    target_lanes_attribute=KEY_LANES_DESCRIPTION_AFTER,
+    return_H=False,
+):
+    """SNMan way to load a street graph and convert it into a lane graph"""
+    G = io.load_street_graph(edge_path, node_path)  # initialize lanes after rebuild
+    print("Initial street graph edges:", G.number_of_edges())
+    # need to save the maxspeed attribute here to use it later
+    nx.set_edge_attributes(G, nx.get_edge_attributes(G, source_lanes_attribute), target_lanes_attribute)
+    # ensure consistent edge directions (only from lower to higher node!)
+    street_graph.organize_edge_directions(G)
+
+    # # for using multi_set_given:
+    # if len(nx.get_edge_attributes(G, "grade")) == 0:
+    #     nx.set_edge_attributes(G, 0, "grade")
+    # rebuilding.multi_set_given_lanes(G)
+    distribution.set_given_lanes(G)
+    H = street_graph.filter_lanes_by_modes(G, {MODE_PRIVATE_CARS}, lane_description_key=KEY_GIVEN_LANES_DESCRIPTION)
+
+    merge_edges.reset_intermediate_nodes(H)
+    merge_edges.merge_consecutive_edges(H, distinction_attributes={KEY_LANES_DESCRIPTION_AFTER})
+    # make lane graph
+    L = lane_graph.create_lane_graph(H, KEY_GIVEN_LANES_DESCRIPTION)
+    print("Initial lane graph edges:", L.number_of_edges())
+    # make sure that the graph is strongly connected
+    L = graph.keep_only_the_largest_connected_component(L)
+    print("Lane graph edges after keeping connected component:", L.number_of_edges())
+    # add some edge attributes that we need for the optimization (e.g. slope)
+    L = adapt_edge_attributes(L, ignore_fixed=IGNORE_FIXED)
+    if return_H:
+        return H, L
+    return L
 
 
 def adapt_edge_attributes(L: nx.MultiDiGraph, ignore_fixed=False):

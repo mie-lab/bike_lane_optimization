@@ -6,12 +6,12 @@ import numpy as np
 
 from ebike_city_tools.optimize.linear_program import define_IP
 from ebike_city_tools.utils import (
-    lane_to_street_graph,
     compute_car_time,
     compute_edgedependent_bike_time,
     output_to_dataframe,
     fix_multilane_bike_lanes,
 )
+from ebike_city_tools.graph_utils import lane_to_street_graph
 from ebike_city_tools.iterative_algorithms import transform_car_to_bike_edge
 from ebike_city_tools.metrics import compute_travel_times_in_graph
 

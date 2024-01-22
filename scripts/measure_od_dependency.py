@@ -4,8 +4,9 @@ import numpy as np
 import networkx as nx
 import pandas as pd
 from ebike_city_tools.synthetic import random_lane_graph
-from ebike_city_tools.utils import lane_to_street_graph, extend_od_circular
+from ebike_city_tools.utils import extend_od_circular
 from ebike_city_tools.optimize.linear_program import define_IP
+from ebike_city_tools.graph_utils import lane_to_street_graph
 
 OUT_PATH = "outputs"
 os.makedirs(OUT_PATH, exist_ok=True)
