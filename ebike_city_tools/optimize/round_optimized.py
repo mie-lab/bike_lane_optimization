@@ -46,12 +46,12 @@ class ParetoRoundOptimize:
         """
         obj_value = None
         ip = None
-        iter = 0
+        counter = 0
         # increase considered number of edges until we have a valid solution
         while obj_value is None:
-            if iter >= 1:
+            if counter >= 1:
                 old_valid_edges = self.optimize_kwargs.get("valid_edges_k", 0)
-                assert old_valid_edges >= 0, "Problem: obj value None despite no restriction on valid edges!"
+                assert old_valid_edges > 0, "Problem: obj value None despite no restriction on valid edges!"
                 assert old_valid_edges <= 1000, "Error: stopping because no solution found even with valid edges = 1000"
                 print(f"Objective value was None with valid_edges={old_valid_edges}, trying again with increased k")
                 self.optimize_kwargs["valid_edges_k"] = old_valid_edges * 2
@@ -66,7 +66,7 @@ class ParetoRoundOptimize:
             ip.optimize()
             obj_value = ip.objective_value
             toc_optim = time.time()
-            iter += 1  # increase counter
+            counter += 1  # increase counter
 
         # log runtimes
         self.runtimes["time_init"].append(toc - tic)
@@ -157,7 +157,14 @@ class ParetoRoundOptimize:
         self.fixed_capacities = pd.DataFrame(columns=["Edge", "u_b(e)", "u_c(e)", "capacity"])
         self.total_capacities = nx.get_edge_attributes(self.G_street, "capacity")
 
-    def pareto(self, save_graph_path=None, fix_multilane=True, return_list=False) -> pd.DataFrame:
+    def allocate_x_bike_lanes(self, fraction_bike_lanes, fix_multilane=True):
+        """Run rounding until we have allocation <fraction_bike_lanes>% of the edges as bike lanes, return graph"""
+        desired_num_bike_edges = int(self.G_lane.number_of_edges() * fraction_bike_lanes)
+        return self.pareto(return_graph_at_edges=desired_num_bike_edges, fix_multilane=fix_multilane)
+
+    def pareto(
+        self, save_graph_path=None, fix_multilane=True, return_list=False, return_graph_at_edges=None
+    ) -> pd.DataFrame:
         """
         Computes the pareto frontier of bike and car travel times by rounding in batches
         This algorithm optimizes the capacity every x bike edges. Then, we iterate through the sorted bike capacities,
@@ -248,6 +255,13 @@ class ParetoRoundOptimize:
                     ]
                     edge_df.to_csv(save_graph_path + f"_graph_{edges_removed}.csv", index=False)
 
+            # return graph if at this number of edges
+            if return_graph_at_edges is not None and edges_removed == return_graph_at_edges:
+                return self.modified_G_lane
+
+        # if we have reached the end but not the number of edges we wanted to allocate, return graph
+        if return_graph_at_edges is not None:
+            return self.modified_G_lane
         if return_list:
             return self.pareto_df
         return pd.DataFrame(self.pareto_df)

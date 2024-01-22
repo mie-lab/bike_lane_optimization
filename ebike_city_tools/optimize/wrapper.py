@@ -20,7 +20,7 @@ OPTIMIZE_PARAMS = {
     "bike_flow_constant": 1,
     "car_flow_constant": 1,
     "optimize_every_x": 1000,  # TODO: set lower for final version
-    "valid_edges_k": None,
+    "valid_edges_k": 0,
     "car_weight": 2,
     "sp_method": "od",
     "shared_lane_factor": 2,
@@ -105,14 +105,11 @@ def lane_optimization(
     if od_df is None:
         od["trips"] = 1  # if all weightings are 0, it doesn't work, so we have to set it to 1 in this case
 
-    print(
-        f"---------------\nProcessing lane graph, {G_lane.number_of_edges()} edges and {G_lane.number_of_nodes()} nodes"
-    )
+    print(f"Optimizing lane graph, {G_lane.number_of_edges()} edges and {G_lane.number_of_nodes()} nodes")
     print(f"with {len(od)} OD pairs")
 
     opt = ParetoRoundOptimize(G_lane.copy(), od.copy(), **optimize_params)
-    num_bike_edges = int(edge_fraction * G_lane.number_of_edges())
-    new_lane_graph = opt.pareto(return_graph=True, max_bike_edges=num_bike_edges)
+    new_lane_graph = opt.allocate_x_bike_lanes(fraction_bike_lanes=edge_fraction, fix_multilane=False)
 
     # return only the car lanes
     G_filtered = filter_by_attribute(new_lane_graph, "lanetype", "M>")
