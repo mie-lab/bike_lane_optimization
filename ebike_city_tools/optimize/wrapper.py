@@ -1,6 +1,8 @@
 import networkx as nx
 import pandas as pd
 import numpy as np
+import os
+import warnings
 
 from ebike_city_tools.utils import (
     extend_od_circular,
@@ -109,12 +111,42 @@ def adapt_edge_attributes(L: nx.MultiDiGraph, ignore_fixed=False):
 
 
 def lane_optimization(
+    G_lane,
+    od_df: pd.DataFrame = None,
+    edge_fraction: float = 0.1,
+    optimize_params: dict = OPTIMIZE_PARAMS,
+    fix_multilane: bool = True,
+) -> nx.MultiDiGraph:
+    """Takes a lane graph from the city of Zurich, creates the OD matrix, and runs optimization"""
+
+    if od_df is not None:
+        od = od_df.copy()
+    else:
+        # Initialize od with empty dataframe
+        od = pd.DataFrame(columns=["s", "t", "trips"])
+    # extend OD matrix because otherwise we get disconnected car graph
+    od = extend_od_circular(od, list(G_lane.nodes()))
+    if od_df is None:
+        od["trips"] = 1  # if all weightings are 0, it doesn't work, so we have to set it to 1 in this case
+
+    od = extend_od_circular(od, list(G_lane.nodes()))
+
+    print(f"Optimizing lane graph, {G_lane.number_of_edges()} edges and {G_lane.number_of_nodes()} nodes")
+    print(f"with {len(od)} OD pairs")
+
+    # run Pareto frontier
+    opt = ParetoRoundOptimize(G_lane.copy(), od.copy(), **optimize_params)
+    optimized_G_lane = opt.allocate_x_bike_lanes(fraction_bike_lanes=edge_fraction, fix_multilane=fix_multilane)
+    return optimized_G_lane
+
+
+def lane_optimization_snman(
     L,
     L_existing=None,
     street_graph=None,
     width_attribute=None,
-    od_df=None,
-    edge_fraction=0.1,
+    od_df_path="../street_network_data/birchplatz/raw_od_matrix/od_whole_city.csv",
+    edge_fraction=0.4,
     optimize_params=OPTIMIZE_PARAMS,
     verbose=True,
     crs=2056,
@@ -134,26 +166,15 @@ def lane_optimization(
     G_lane.remove_edges_from(nx.selfloop_edges(G_lane))
 
     # make OD matrix
-    node_gdf = nodes_to_geodataframe(G_lane, crs=crs)
-    od_df = match_od_with_nodes(
-        station_data_path="../street_network_data/birchplatz/raw_od_matrix/od_whole_city.csv", nodes=node_gdf
-    )
-
-    if od_df is not None:
-        od = od_df.copy()
+    if os.path.exists(od_df_path):
+        node_gdf = nodes_to_geodataframe(G_lane, crs=crs)
+        od_df = match_od_with_nodes(station_data_path=od_df_path, nodes=node_gdf)
     else:
-        # Initialize od with empty dataframe
-        od = pd.DataFrame(columns=["s", "t", "trips"])
-    # extend OD matrix because otherwise we get disconnected car graph
-    od = extend_od_circular(od, list(G_lane.nodes()))
-    if od_df is None:
-        od["trips"] = 1  # if all weightings are 0, it doesn't work, so we have to set it to 1 in this case
+        warnings.warn("Attention: The path to a city-wide OD-matrix does not exist, so we are using a random OD")
 
-    print(f"Optimizing lane graph, {G_lane.number_of_edges()} edges and {G_lane.number_of_nodes()} nodes")
-    print(f"with {len(od)} OD pairs")
-
-    opt = ParetoRoundOptimize(G_lane.copy(), od.copy(), **optimize_params)
-    new_lane_graph = opt.allocate_x_bike_lanes(fraction_bike_lanes=edge_fraction, fix_multilane=False)
+    new_lane_graph = lane_optimization(
+        G_lane, od_df=od_df, edge_fraction=edge_fraction, optimize_params=optimize_params
+    )
 
     # return only the car lanes
     G_filtered = filter_by_attribute(new_lane_graph, "lanetype", "M>")

@@ -5,11 +5,26 @@ import networkx as nx
 from collections import defaultdict
 import pandas as pd
 
+# filter edges
+CAPACITY_BY_LANE = {"H": 1, "M": 1, "P": 0.5, "L": 0.5}
 
-def load_lane_graph(path: str, maxspeed_fill_val: int = 50):
-    # street_graph_init # ?[]
-    street_graph_edges = gpd.read_file(os.path.join(path, "edges_all_attributes.gpkg")).set_index(["u", "v"])
-    street_graph_nodes = gpd.read_file(os.path.join(path, "nodes_all_attributes.gpkg")).set_index("osmid")
+
+def load_lane_graph(
+    path: str,
+    maxspeed_fill_val: int = 50,
+    edge_fn="edges_all_attributes.gpkg",
+    node_fn="nodes_all_attributes.gpkg",
+    include_lanetypes=["H>", "H<", "M>", "M<", "M-"],
+    fixed_lanetypes=["H>", "<H"],
+    target_crs=2056,
+):
+    # load fro file
+    street_graph_edges = gpd.read_file(os.path.join(path, edge_fn)).to_crs(target_crs)
+    street_graph_nodes = gpd.read_file(os.path.join(path, node_fn)).set_index("osmid").to_crs(target_crs)
+
+    # remove self loops and set index
+    street_graph_edges = street_graph_edges[street_graph_edges["u"] != street_graph_edges["v"]]
+    street_graph_edges.set_index(["u", "v"], inplace=True)
 
     # create node attributes
     if "elevation" in street_graph_nodes.columns:
@@ -17,16 +32,12 @@ def load_lane_graph(path: str, maxspeed_fill_val: int = 50):
     else:
         elevation = defaultdict(int)
     node_attr = {
-        idx: {"loc": np.array([row["x"], row["y"]]), "elevation": elevation[idx]}
+        idx: {"loc": np.array([row["x"], row["y"]]), "elevation": elevation[idx], "geometry": row["geometry"]}
         for idx, row in street_graph_nodes.iterrows()
     }
+
     # check if we have the max speed
     maxspeed_exists = "maxspeed" in street_graph_edges.columns
-
-    # filter edges
-    cap_per_lanetype = {"H": 1, "M": 1, "P": 0.5, "L": 0.5}
-    include_lanetypes = ["H>", "H<", "M>", "M<", "M-"]
-    fixed_lanetypes = ["H>", "<H"]
 
     lane_graph_rows = []
     for (u, v), row in street_graph_edges.iterrows():
@@ -37,7 +48,7 @@ def load_lane_graph(path: str, maxspeed_fill_val: int = 50):
             # forward lane
 
             # extract lane properties
-            cap = cap_per_lanetype.get(lt[0], 1)
+            cap = CAPACITY_BY_LANE.get(lt[0], 1)
             property_dict = {
                 "lanetype": lt[0],
                 "distance": row["length"] / 1000,
@@ -68,6 +79,9 @@ def load_lane_graph(path: str, maxspeed_fill_val: int = 50):
         lane_graph_rows, edge_attr=attrs, source="u", target="v", create_using=nx.MultiDiGraph
     )
     nx.set_node_attributes(lane_graph, node_attr)
+
+    # set graph attribute
+    lane_graph.graph["crs"] = target_crs
     return lane_graph
 
 
