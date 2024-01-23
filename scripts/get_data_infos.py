@@ -4,7 +4,7 @@ import geopandas as gpd
 import pandas as pd
 import networkx as nx
 
-from ebike_city_tools.utils import extend_od_circular
+from ebike_city_tools.utils import extend_od_circular, fix_multilane_bike_lanes
 from ebike_city_tools.graph_utils import load_lane_graph, keep_only_the_largest_connected_component
 
 if __name__ == "__main__":
@@ -40,6 +40,8 @@ if __name__ == "__main__":
 
         od = extend_od_circular(od, node_list)
 
+        multi_edges = len(fix_multilane_bike_lanes(G_lane, check_for_existing=False))
+
         res.append(
             {
                 "name": city,
@@ -48,7 +50,7 @@ if __name__ == "__main__":
                 "edges": G_lane.number_of_edges(),
                 "od": od_size_before_extend,
                 "od_after_extend": len(od),
-                "multi-edges": G_lane.number_of_edges() - nx.DiGraph(G_lane).number_of_edges(),
+                "multi-edges": multi_edges,
             }
         )
     res = pd.DataFrame(res)

@@ -121,7 +121,8 @@ def fix_multilane_bike_lanes(G_lane: nx.MultiDiGraph, check_for_existing: bool =
     edges_to_transform = []
     for u in G_lane.nodes():
         for v in G_lane.neighbors(u):
-            if G_lane.number_of_edges(u, v) > 1:
+            # check whether there is a double lane AND there is also at least one edge in the other direction
+            if G_lane.number_of_edges(u, v) > 1 and G_lane.number_of_edges(v, u) > 0:
                 # if there is already a bike lane, skip (only if we don't reallocate existing bike lanes)
                 if check_for_existing and "lanetype" in G_lane[u][v].items():
                     lanetypes = {k: d["lanetype"] for k, d in G_lane[u][v].items()}
