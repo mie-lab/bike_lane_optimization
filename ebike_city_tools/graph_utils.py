@@ -9,14 +9,12 @@ import pandas as pd
 CAPACITY_BY_LANE = {"H": 1, "M": 1, "P": 0.5, "L": 0.5}
 
 
-def load_lane_graph(
+def load_nodes_edges_dataframes(
     path: str,
-    maxspeed_fill_val: int = 50,
-    edge_fn="edges_all_attributes.gpkg",
-    node_fn="nodes_all_attributes.gpkg",
-    include_lanetypes=["H>", "H<", "M>", "M<", "M-"],
-    fixed_lanetypes=["H>", "<H"],
-    target_crs=2056,
+    node_fn: str = "nodes_all_attributes.gpkg",
+    edge_fn: str = "edges_all_attributes.gpkg",
+    remove_multistreets: bool = True,
+    target_crs: int = 2056,
 ):
     # load fro file
     street_graph_edges = gpd.read_file(os.path.join(path, edge_fn)).to_crs(target_crs)
@@ -26,13 +24,62 @@ def load_lane_graph(
     street_graph_edges = street_graph_edges[street_graph_edges["u"] != street_graph_edges["v"]]
     street_graph_edges.set_index(["u", "v"], inplace=True)
 
+    # remove the ones with key>0
+    if remove_multistreets:
+        street_graph_edges = clean_street_graph_multiedges(street_graph_edges)
+        print("removed multiedges from street graph", len(street_graph_edges))
+        street_graph_edges = clean_street_graph_directions(street_graph_edges)
+        print("removed bidirectional edges from street graph", len(street_graph_edges))
+
+    return street_graph_nodes, street_graph_edges
+
+
+def load_lane_graph(
+    path: str,
+    edge_fn: str = "edges_all_attributes.gpkg",
+    node_fn: str = "nodes_all_attributes.gpkg",
+    remove_multistreets: bool = True,
+    target_crs: int = 2056,
+    maxspeed_fill_val: int = 50,
+    include_lanetypes=["H>", "H<", "M>", "M<", "M-"],
+    fixed_lanetypes=["H>", "<H"],
+):
+    # load the dataframe
+    street_graph_nodes, street_graph_edges = load_nodes_edges_dataframes(
+        path, node_fn=node_fn, edge_fn=edge_fn, remove_multistreets=remove_multistreets, target_crs=target_crs
+    )
+    # convert to lane graph
+    return street_to_lane_graph(
+        street_graph_nodes,
+        street_graph_edges,
+        maxspeed_fill_val=maxspeed_fill_val,
+        include_lanetypes=include_lanetypes,
+        fixed_lanetypes=fixed_lanetypes,
+        target_crs=target_crs,
+    )
+
+
+def street_to_lane_graph(
+    street_graph_nodes: gpd.GeoDataFrame,
+    street_graph_edges: gpd.GeoDataFrame,
+    maxspeed_fill_val: int = 50,
+    include_lanetypes=["H>", "H<", "M>", "M<", "M-"],
+    fixed_lanetypes=["H>", "<H"],
+    target_crs=2056,
+):
     # create node attributes
     if "elevation" in street_graph_nodes.columns:
         elevation = street_graph_nodes["elevation"].to_dict()
     else:
         elevation = defaultdict(int)
     node_attr = {
-        idx: {"loc": np.array([row["x"], row["y"]]), "elevation": elevation[idx], "geometry": row["geometry"]}
+        idx: {
+            "loc": np.array([row["x"], row["y"]]),
+            "elevation": elevation[idx],
+            "geometry": row["geometry"],
+            "x": row["x"],
+            "y": row["y"],
+        }
         for idx, row in street_graph_nodes.iterrows()
     }
 
@@ -232,3 +279,54 @@ def keep_only_the_largest_connected_component(G, weak=False):
         nodes = max(nx.connected_components(G), key=len)
 
     return G.subgraph(nodes).copy()
+
+
+def clean_street_graph_multiedges(street_graph_edges: gpd.GeoDataFrame, lane_attr: str = "ln_desc"):
+    """
+    Merge all multi-lanes in street graph
+    Unexpectedly, the street graph may have some u-v pairs doubled. We set the ln_desc_attribute to the set of both.
+    """
+    if "u" in street_graph_edges.columns:
+        street_graph_edges.set_index(["u", "v"], inplace=True)
+    # make copy that contains only the ones with key 0
+    street_graph_edges_new = street_graph_edges[street_graph_edges["key"] == 0]
+    for u, v in street_graph_edges[street_graph_edges["key"] > 0].index:
+        lane_set = set()
+        for ln_desc in street_graph_edges.loc[(u, v), lane_attr].values:
+            for ln in ln_desc.split(" | "):
+                lane_set.add(ln)
+        lane_set = " | ".join(list(lane_set))
+        street_graph_edges_new.loc[(u, v), lane_attr] = lane_set
+    return street_graph_edges_new
+
+
+def clean_street_graph_directions(street_graph_edges: gpd.GeoDataFrame, lane_attr: str = "ln_desc"):
+    """
+    Remove bidirectional edges from street graph. Every u,v pair should only appear once. Set the lane_attr of the
+    remaining edge to the combined lanes from both edges
+
+    Args:
+        street_graph_edges (gpd.GeoDataFrame): Input edges
+        lane_attr (str, optional): name of the column describing the existing lanes. Defaults to "ln_desc".
+
+    Returns:
+        gpd.GeoDataFrame: Edges with all bidirectional edges merged
+    """
+    new_street_graph_edges = street_graph_edges.copy()
+    # get all unique edges
+    unique_edges = set([tuple(e) for e in street_graph_edges.index])
+    # iterate over edges and set key=2 for edges where the edge in the opposite direction exists
+    for (u, v), row in street_graph_edges.iterrows():
+        # if opposite way is in the unique edges (but just do that one time)
+        if (v, u) in unique_edges and u < v:
+            new_street_graph_edges.loc[(u, v), "key"] = 2  # this will be removed
+            lanes_forward = street_graph_edges.loc[(v, u), lane_attr]
+            lanes_backward = street_graph_edges.loc[(u, v), lane_attr]
+            lanes_forward = lanes_forward.replace("-", ">")
+            lanes_backward = (
+                lanes_backward.replace("-", ">").replace("<", "<backup").replace(">", "<").replace("<backup", ">")
+            )
+            #             print(lanes_forward, "       ", lanes_backward)
+            new_lanes = " | ".join(lanes_forward.split(" | ") + lanes_backward.split(" | "))
+            new_street_graph_edges[(v, u), lane_attr] = new_lanes
+    return new_street_graph_edges[new_street_graph_edges["key"] == 0]

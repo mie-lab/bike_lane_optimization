@@ -6,7 +6,8 @@ import osmnx
 import networkx as nx
 from ebike_city_tools.optimize.wrapper import lane_optimization, lane_optimization_snman
 from ebike_city_tools.graph_utils import (
-    load_lane_graph,
+    load_nodes_edges_dataframes,
+    street_to_lane_graph,
     nodes_to_geodataframe,
     keep_only_the_largest_connected_component,
 )
@@ -52,7 +53,7 @@ def apply_changes_to_street_graph(street_graph_init: pd.DataFrame, G_lane_modifi
     Applies changes in the motorized lanes in a lane graph to the original big street graph
     """
     # get count per source-target-lane group
-    count_per_lane = G_lane_modified.groupby(["source", "target", "lanetype"])["lane_id"].count()
+    count_per_lane = G_lane_modified.groupby(["source", "target", "lanetype"])["lanetype"].count()
 
     # iterate over edges in the original graph and modify where necessary
     for u, v in street_graph_init.index:
@@ -98,7 +99,9 @@ def apply_changes_to_street_graph(street_graph_init: pd.DataFrame, G_lane_modifi
             if "P" in new_lanes:
                 old_other_lanes = [l for l in old_other_lanes if "P" not in l and "L" not in l]
             new_lanes_string = " | ".join(old_other_lanes + new_lanes)
-            print("OLD:", old_other_lanes, old_motorized_lanes, "NEW:", new_lanes, "ATTR:", new_lanes_string)
+            if len(new_lanes_string.split(" | ")) > len(old_other_lanes) + len(old_motorized_lanes):
+                print("PROBLEM: more new lanes than old lanes:")
+                print(u, v, "OLD:", old_other_lanes, old_motorized_lanes, "NEW:", new_lanes, "ATTR:", new_lanes_string)
             street_graph_init.loc[(u, v), "ln_desc_after"] = new_lanes_string
     return street_graph_init
 
@@ -109,14 +112,18 @@ def rebuild_street_network(data_directory: str, output_path: str, out_attr_name:
     """
     # load lane graph - MultiDiGraph
     graph_path = os.path.join(data_directory, "process", PERIMETER)
-    G_lane = load_lane_graph(
-        graph_path, edge_fn="street_graph_edges.gpkg", node_fn="street_graph_nodes.gpkg", target_crs=CRS_internal
+    # load nodes and edges dataframes
+    street_graph_nodes, street_graph_edges = load_nodes_edges_dataframes(
+        graph_path,
+        node_fn="street_graph_nodes.gpkg",
+        edge_fn="street_graph_edges.gpkg",
+        remove_multistreets=True,
+        target_crs=CRS_internal,
     )
-
-    # load also the raw edges for saving in the same format in the end
-    street_graph_edges = (
-        gpd.read_file(os.path.join(graph_path, "street_graph_edges.gpkg")).set_index(["u", "v"]).to_crs(CRS_internal)
-    )
+    # create lane graph
+    G_lane = street_to_lane_graph(street_graph_nodes, street_graph_edges, target_crs=CRS_internal)
+    assert street_graph_edges["key"].nunique() == 1
+    assert len(street_graph_edges) == len(street_graph_edges.reset_index().drop_duplicates(["u", "v"]))
 
     # initialize with the original lanes
     street_graph_edges[out_attr_name] = street_graph_edges["ln_desc"]
@@ -136,11 +143,12 @@ def rebuild_street_network(data_directory: str, output_path: str, out_attr_name:
             continue
 
         G_lane_region = keep_only_the_largest_connected_component(G_lane_region)
-        print("After connected component", G_lane_region.number_of_nodes(), G_lane_region.number_of_edges())
+        print("Regions graph size (connected comp)", G_lane_region.number_of_nodes(), G_lane_region.number_of_edges())
 
         # make OD matrix for this region
         node_gdf = nodes_to_geodataframe(G_lane_region, crs=CRS_internal)
         od_df = match_od_with_nodes(station_data_path=whole_city_od_path, nodes=node_gdf)
+        print("Build OD matrix", len(od_df))
 
         # optimize region
         optimized_G_lane = lane_optimization(

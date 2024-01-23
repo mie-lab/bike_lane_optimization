@@ -379,7 +379,7 @@ def match_od_with_nodes(station_data_path: str, nodes: gpd.GeoDataFrame):
         .reset_index()
         .rename(columns={"osmid_origin": "s", "osmid_destination": "t", "count": "trips"})
     )
-    print(len(trips_final), trips_final["trips"].sum())
+    print("Number of OD-pairs (nodes):", len(trips_final), "Number of trips:", trips_final["trips"].sum())
     return trips_final
 
 
