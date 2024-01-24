@@ -86,7 +86,7 @@ class ParetoRoundOptimize:
         new_edge = transform_car_to_bike_edge(self.modified_G_lane, edge_to_transform, self.shared_lane_factor)
         self.is_bike[new_edge[:2]] = True  # reversed lane is also bike lane
 
-        # remove from car graph if not done already
+        # remove from car graph if not done already (only done for multiedges)
         if remove_from_car:
             self.car_graph.remove_edge(*edge_to_transform)
 
@@ -95,15 +95,24 @@ class ParetoRoundOptimize:
         # retrieve total capacity of this edge
         # edge_row = source_target_capacities.loc[(e[0], e[1])]
         orig_capacity = self.total_capacities[edge_to_transform[:2]]
-        car_capacity = orig_capacity - 1
-        car_capacity_straight = car_capacity // 2  # divide between straight and reversed -> reversed gets more
+        remaining_car_capacity = orig_capacity - 1
+        # forward capacity is the lower value of the remaining capacity divided by two -> backward gets more by default
+        car_capacity_straight = remaining_car_capacity // 2
+        # if we can only have capacity=1 remaining, we check whether an edge even exists in the opposite direction
+        # --> if no, then we put the capacity in the forward direction
+        if (
+            car_capacity_straight == 0
+            and remaining_car_capacity > 0
+            and self.car_graph.number_of_edges(edge_to_transform[1], edge_to_transform[0]) == 0
+        ):
+            car_capacity_straight = remaining_car_capacity
         if assert_greater_0:
             assert car_capacity_straight > 0, "remaining car capacity must be greater than 1 for multilane edges"
         self.fixed_capacities.loc[-1] = {
             "Edge": (e[1], e[0]),
             "u_b(e)": 1,
             "capacity": orig_capacity,
-            "u_c(e)": car_capacity - car_capacity_straight,
+            "u_c(e)": remaining_car_capacity - car_capacity_straight,
         }
         self.fixed_capacities.loc[-2] = {
             "Edge": (e[0], e[1]),
