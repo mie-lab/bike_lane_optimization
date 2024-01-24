@@ -24,10 +24,10 @@ from snman.constants import (
 )
 
 
-OPTIMIZE_PARAMS = {
+BASE_OPTIMIZE_PARAMS = {
     "bike_flow_constant": 1,
     "car_flow_constant": 1,
-    "optimize_every_x": 1000,  # TODO: set lower for final version
+    "optimize_every_x": 200,
     "valid_edges_k": 0,
     "car_weight": 2,
     "sp_method": "od",
@@ -114,10 +114,13 @@ def lane_optimization(
     G_lane,
     od_df: pd.DataFrame = None,
     edge_fraction: float = 0.4,
-    optimize_params: dict = OPTIMIZE_PARAMS,
+    optimize_params: dict = {},
     fix_multilane: bool = True,
 ) -> nx.MultiDiGraph:
     """Takes a lane graph from the city of Zurich, creates the OD matrix, and runs optimization"""
+    # optimize params are base params but updated:
+    BASE_OPTIMIZE_PARAMS.update(optimize_params)
+    optimize_params = BASE_OPTIMIZE_PARAMS
 
     if od_df is not None:
         od = od_df.copy()
@@ -130,7 +133,7 @@ def lane_optimization(
         od["trips"] = 1  # if all weightings are 0, it doesn't work, so we have to set it to 1 in this case
 
     print(f"Optimizing lane graph, {G_lane.number_of_edges()} edges and {G_lane.number_of_nodes()} nodes")
-    print(f"with {len(od)} OD pairs")
+    print(f"with {len(od)} OD pairs and with parametrs", optimize_params)
 
     # run Pareto frontier
     opt = ParetoRoundOptimize(G_lane.copy(), od.copy(), **optimize_params)
@@ -145,7 +148,7 @@ def lane_optimization_snman(
     width_attribute=None,
     od_df_path="../street_network_data/birchplatz/raw_od_matrix/od_whole_city.csv",
     edge_fraction=0.4,
-    optimize_params=OPTIMIZE_PARAMS,
+    optimize_params=BASE_OPTIMIZE_PARAMS,
     verbose=True,
     crs=2056,
 ):

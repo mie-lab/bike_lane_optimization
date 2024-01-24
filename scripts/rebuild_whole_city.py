@@ -3,6 +3,7 @@ import os
 import geopandas as gpd
 import pandas as pd
 import osmnx
+import time
 import networkx as nx
 from multiprocessing import Pool, cpu_count
 from ebike_city_tools.optimize.wrapper import lane_optimization, lane_optimization_snman
@@ -23,6 +24,12 @@ warnings.filterwarnings("ignore")
 PERIMETER = "_debug"
 
 ALGORITHM = "optimize"  #  "betweenness"
+NUM_OPTIMIZATIONS = 5
+EDGE_FRACTION = 0.4
+CAR_WEIGHT = 4
+VALID_EDGES_K = 0
+
+save_name_mapping = {"zurich main roads customized": "zrh-main"}
 
 
 def snman_rebuilding(
@@ -118,12 +125,16 @@ def apply_changes_to_street_graph(street_graph_init: pd.DataFrame, G_lane_modifi
 
 def optimize_region(args):
     G_lane_region, od_df, save_intermediate_path = args
+    tic = time.time()
     if ALGORITHM == "optimize":
+        # set parameters based on graph size
+        params = {
+            "optimize_every_x": int(G_lane_region.number_of_edges() / NUM_OPTIMIZATIONS),
+            "valid_edges_k": VALID_EDGES_K,
+            "car_weight": CAR_WEIGHT,
+        }
         # optimize region
-        optimized_G_lane = lane_optimization(
-            G_lane_region,
-            od_df,
-        )
+        optimized_G_lane = lane_optimization(G_lane_region, od_df, optimize_params=params, edge_fraction=EDGE_FRACTION)
     elif ALGORITHM == "betweenness":
         optimized_G_lane = betweenness_pareto(
             G_lane_region, od_df, sp_method="od", return_graph_at_edges=int(0.4 * G_lane_region.number_of_edges())
@@ -132,13 +143,14 @@ def optimize_region(args):
         raise NotImplementedError("algorithm must be betweenness or optimize")
     # save the intermediate result
     nx.to_pandas_edgelist(optimized_G_lane, edge_key="key").to_csv(save_intermediate_path)
-    print("FINISHED REGION", save_intermediate_path)
+    print("FINISHED REGION", save_intermediate_path, time.time() - tic)
     return optimized_G_lane
 
 
 def rebuild_street_network_parallel(
     data_directory: str, output_path: str, whole_city_od_path: str, out_attr_name: str = "ln_desc_after"
 ):
+    tic = time.time()
     # 1) LOADING
     # load lane graph - MultiDiGraph
     graph_path = os.path.join(data_directory, "process", PERIMETER)
@@ -164,6 +176,7 @@ def rebuild_street_network_parallel(
 
     # 2) Prepare arguments for processing each region
     args_list = []
+    index_counter, put_to_end = 0, 0
     for i, rebuilding_region in rebuilding_regions_gdf.iterrows():
         # get the region polygon
         polygon = rebuilding_region["geometry"]
@@ -178,7 +191,8 @@ def rebuild_street_network_parallel(
             # print("Skipping empty region ", i)
             continue
 
-        print("\n--------\nBuilding subgraph for region", i, rebuilding_region["description"])
+        name = save_name_mapping.get(rebuilding_region["description"], rebuilding_region["description"])
+        print("\n--------\nBuilding subgraph for region", i, name)
 
         # filter for included streets
         included_streets = rebuilding_region["hierarchies_to_include"]
@@ -189,6 +203,8 @@ def rebuild_street_network_parallel(
             )
             G_lane_region = filter_graph_by_attribute(G_lane_region, "hierarchy", included_streets.split(","))
             print(G_lane_region.number_of_edges())
+            # remember that we process the main streets only in the end when merging into main graph
+            put_to_end = index_counter
 
         # fix streets to be fixed (not to be converted to bike lanes)
         fix_streets = rebuilding_region["hierarchies_to_fix"]
@@ -214,10 +230,11 @@ def rebuild_street_network_parallel(
             len(od_df),
         )
 
-        save_intermediate_path = os.path.join(output_path, f"rebuild_region_{i}_graph.csv")
+        save_intermediate_path = os.path.join(output_path, f"rebuild_region_{name}_graph.csv")
 
         # append to input arguments for parallel processing
         args_list.append([G_lane_region, od_df, save_intermediate_path])
+        index_counter += 1
 
     print(f"-----Starting pool of {len(args_list)} processes")
     # 3) Initialize multiprocessing.Pool()
@@ -227,16 +244,27 @@ def rebuild_street_network_parallel(
     results = pool.map(optimize_region, args_list)
 
     # Combine the results and apply to the original street graph
-    for optimized_G_lane in results:
+    for i, optimized_G_lane in enumerate(results):
+        if i == put_to_end:
+            continue
         street_graph_edges = apply_changes_to_street_graph(
             street_graph_edges, nx.to_pandas_edgelist(optimized_G_lane, edge_key="key")
         )
+    # apply main roads in the very end (note: currently not really necessary because bike lanes are never turned back)
+    # into car lanes
+    street_graph_edges = apply_changes_to_street_graph(
+        street_graph_edges, nx.to_pandas_edgelist(results[put_to_end], edge_key="key")
+    )
 
     pool.close()
     pool.join()
 
+    print("----------\nFinished rebuilding whole city", time.time() - tic)
     # save final result
-    street_graph_edges.to_file(os.path.join(output_path, "rebuild_whole_graph.gpkg"))
+    try:
+        street_graph_edges.to_file(os.path.join(output_path, "rebuild_whole_graph.gpkg"))
+    except:
+        street_graph_edges.drop("geometry", axis=1).to_csv(os.path.join(output_path, "rebuild_whole_graph.csv"))
 
 
 CRS_internal = 2056  # for Zurich
