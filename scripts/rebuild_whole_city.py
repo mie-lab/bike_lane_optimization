@@ -11,14 +11,18 @@ from ebike_city_tools.graph_utils import (
     street_to_lane_graph,
     nodes_to_geodataframe,
     keep_only_the_largest_connected_component,
+    filter_graph_by_attribute,
 )
-from ebike_city_tools.utils import match_od_with_nodes
+from ebike_city_tools.iterative_algorithms import betweenness_pareto
+from ebike_city_tools.utils import match_od_with_nodes, fix_edges_from_attribute
 from snman.constants import *
 import snman
 import warnings
 
 warnings.filterwarnings("ignore")
 PERIMETER = "_debug"
+
+ALGORITHM = "optimize"  #  "betweenness"
 
 
 def snman_rebuilding(
@@ -112,82 +116,24 @@ def apply_changes_to_street_graph(street_graph_init: pd.DataFrame, G_lane_modifi
     return street_graph_init
 
 
-def rebuild_street_network(
-    data_directory: str, output_path: str, whole_city_od_path: str, out_attr_name: str = "ln_desc_after"
-):
-    """
-    Own implementation of rebuilding
-    """
-    # load lane graph - MultiDiGraph
-    graph_path = os.path.join(data_directory, "process", PERIMETER)
-    # load nodes and edges dataframes
-    street_graph_nodes, street_graph_edges = load_nodes_edges_dataframes(
-        graph_path,
-        node_fn="street_graph_nodes.gpkg",
-        edge_fn="street_graph_edges.gpkg",
-        remove_multistreets=True,
-        target_crs=CRS_internal,
-    )
-    # create lane graph
-    G_lane = street_to_lane_graph(street_graph_nodes, street_graph_edges, target_crs=CRS_internal)
-    assert street_graph_edges["key"].nunique() == 1
-    assert len(street_graph_edges) == len(street_graph_edges.reset_index().drop_duplicates(["u", "v"]))
-
-    # initialize with the original lanes
-    street_graph_edges[out_attr_name] = street_graph_edges["ln_desc"]
-
-    rebuilding_regions_gdf = gpd.read_file(
-        os.path.join(data_directory, "inputs", "rebuilding_regions", "rebuilding_regions.gpkg")
-    ).to_crs(G_lane.graph["crs"])
-
-    for i, rebuilding_region in rebuilding_regions_gdf.iterrows():
-        print("\n--------\nRebuilding region", i, rebuilding_region["description"])
-        # get the region polygon
-        polygon = rebuilding_region["geometry"]
-
-        # make a graph cutout based on the region geometry and skip this region if the resulting subgraph is empty
-        G_lane_region = osmnx.truncate.truncate_graph_polygon(G_lane, polygon, quadrat_width=100, retain_all=True)
-        if len(G_lane_region.edges) == 0:
-            continue
-
-        G_lane_region = keep_only_the_largest_connected_component(G_lane_region)
-        print("Regions graph size (connected comp)", G_lane_region.number_of_nodes(), G_lane_region.number_of_edges())
-
-        # make OD matrix for this region
-        node_gdf = nodes_to_geodataframe(G_lane_region, crs=CRS_internal)
-        od_df = match_od_with_nodes(station_data_path=whole_city_od_path, nodes=node_gdf)
-        print("Build OD matrix", len(od_df))
-
+def optimize_region(args):
+    G_lane_region, od_df, save_intermediate_path = args
+    if ALGORITHM == "optimize":
         # optimize region
         optimized_G_lane = lane_optimization(
             G_lane_region,
             od_df,
         )
-
-        # apply changes
-        street_graph_edges = apply_changes_to_street_graph(
-            street_graph_edges, nx.to_pandas_edgelist(optimized_G_lane, edge_key="key")
+    elif ALGORITHM == "betweenness":
+        optimized_G_lane = betweenness_pareto(
+            G_lane_region, od_df, sp_method="od", return_graph_at_edges=int(0.4 * G_lane_region.number_of_edges())
         )
-
-        # save intermediate result
-        street_graph_edges[[out_attr_name]].to_csv(
-            os.path.join(output_path, f"rebuild_region_{i}_graph.csv"), index=True
-        )
-
-    # save final result
-    street_graph_edges.to_csv(os.path.join(output_path, "rebuild_full_graph.csv"), index=True)
-
-
-def optimize_region(args):
-    G_lane_region, od_df, save_intermediate_path = args
-    # optimize region
-    optimized_G_lane = lane_optimization(
-        G_lane_region,
-        od_df,
-    )
+    else:
+        raise NotImplementedError("algorithm must be betweenness or optimize")
     # save the intermediate result
     nx.to_pandas_edgelist(optimized_G_lane, edge_key="key").to_csv(save_intermediate_path)
-    return optimize_region
+    print("FINISHED REGION", save_intermediate_path)
+    return optimized_G_lane
 
 
 def rebuild_street_network_parallel(
@@ -216,10 +162,7 @@ def rebuild_street_network_parallel(
         os.path.join(data_directory, "inputs", "rebuilding_regions", "rebuilding_regions.gpkg")
     ).to_crs(G_lane.graph["crs"])
 
-    # 2) Initialize multiprocessing.Pool()
-    pool = Pool(cpu_count())
-
-    # 3) Prepare arguments for processing each region
+    # 2) Prepare arguments for processing each region
     args_list = []
     for i, rebuilding_region in rebuilding_regions_gdf.iterrows():
         # get the region polygon
@@ -235,13 +178,34 @@ def rebuild_street_network_parallel(
             # print("Skipping empty region ", i)
             continue
 
+        print("\n--------\nBuilding subgraph for region", i, rebuilding_region["description"])
+
+        # filter for included streets
+        included_streets = rebuilding_region["hierarchies_to_include"]
+        if not (pd.isna(included_streets) or len(included_streets) == 0):
+            print(
+                f"filtering graph (initial size: {G_lane_region.number_of_edges()}) by included streets",
+                included_streets,
+            )
+            G_lane_region = filter_graph_by_attribute(G_lane_region, "hierarchy", included_streets.split(","))
+            print(G_lane_region.number_of_edges())
+
+        # fix streets to be fixed (not to be converted to bike lanes)
+        fix_streets = rebuilding_region["hierarchies_to_fix"]
+        if pd.isna(fix_streets) or len(fix_streets) == 0:
+            print("setting all edges to not-fixed")
+            nx.set_edge_attributes(G_lane_region, False, "fixed")
+        else:
+            print(f"setting edges with attribute {fix_streets.split(',')} to fixed")
+            fix_edges_from_attribute(G_lane_region, {"hierarchy": fix_streets.split(",")})
+
+        # reduce to largest connected component
         G_lane_region = keep_only_the_largest_connected_component(G_lane_region)
 
         # make OD matrix for this region
         node_gdf = nodes_to_geodataframe(G_lane_region, crs=CRS_internal)
         od_df = match_od_with_nodes(station_data_path=whole_city_od_path, nodes=node_gdf)
 
-        print("\n--------\nRebuilding region", i, rebuilding_region["description"])
         print(
             "Regions graph size (connected comp)",
             G_lane_region.number_of_nodes(),
@@ -255,6 +219,10 @@ def rebuild_street_network_parallel(
         # append to input arguments for parallel processing
         args_list.append([G_lane_region, od_df, save_intermediate_path])
 
+    print(f"-----Starting pool of {len(args_list)} processes")
+    # 3) Initialize multiprocessing.Pool()
+    pool = Pool(cpu_count())
+
     # 4) Process each region in parallel, collect results (the optimized lane graphs)
     results = pool.map(optimize_region, args_list)
 
@@ -266,6 +234,9 @@ def rebuild_street_network_parallel(
 
     pool.close()
     pool.join()
+
+    # save final result
+    street_graph_edges.to_file(os.path.join(output_path, "rebuild_whole_graph.gpkg"))
 
 
 CRS_internal = 2056  # for Zurich

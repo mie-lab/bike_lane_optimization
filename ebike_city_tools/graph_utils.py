@@ -102,6 +102,7 @@ def street_to_lane_graph(
                 "capacity": cap,
                 "gradient": 100 * (elevation.get(v, 0) - elevation.get(u, 0)) / row["length"],
                 "fixed": lt in fixed_lanetypes,
+                "hierarchy": row["hierarchy"],
                 "speed_limit": row["maxspeed"]
                 if maxspeed_exists and not pd.isna(row["maxspeed"])
                 else maxspeed_fill_val,
@@ -174,7 +175,7 @@ def remove_edge_attribute(G, attr):
 
 def filter_by_attribute(G, attr, attr_value):
     """
-    Create a subgraph of G consisting of the edges with attr=attr_value
+    DEPRECATED: Create a subgraph of G consisting of the edges with attr=attr_value
     """
     edges_df = nx.to_pandas_edgelist(G)
     edges_df = edges_df[edges_df[attr] == attr_value]
@@ -185,6 +186,15 @@ def filter_by_attribute(G, attr, attr_value):
     # make sure that the other attributes are transferred to the new graph
     G_filtered = transfer_node_attributes(G, G_filtered)
     return G_filtered
+
+
+def filter_graph_by_attribute(G_lane: nx.MultiDiGraph, attr: str, attr_values: list) -> nx.MultiDiGraph:
+    """Filter a graph by an attribut (if it is in attr_values) and return the subgraph"""
+    # find all edges that fulfill the criteria
+    edges = [(u, v, k) for u, v, k, data in G_lane.edges(keys=True, data=True) if data[attr] in attr_values]
+    # construct subgraph
+    subgraph_filtered = G_lane.edge_subgraph(edges)
+    return subgraph_filtered
 
 
 def nodes_to_geodataframe(G, crs=4326):
