@@ -338,5 +338,5 @@ def clean_street_graph_directions(street_graph_edges: gpd.GeoDataFrame, lane_att
             )
             #             print(lanes_forward, "       ", lanes_backward)
             new_lanes = " | ".join(lanes_forward.split(" | ") + lanes_backward.split(" | "))
-            new_street_graph_edges[(v, u), lane_attr] = new_lanes
+            new_street_graph_edges.loc[(v, u), lane_attr] = new_lanes
     return new_street_graph_edges[new_street_graph_edges["key"] == 0]
