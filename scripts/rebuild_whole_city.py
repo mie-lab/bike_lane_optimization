@@ -4,6 +4,7 @@ import geopandas as gpd
 import pandas as pd
 import osmnx
 import networkx as nx
+from multiprocessing import Pool, cpu_count
 from ebike_city_tools.optimize.wrapper import lane_optimization, lane_optimization_snman
 from ebike_city_tools.graph_utils import (
     load_nodes_edges_dataframes,
@@ -14,12 +15,17 @@ from ebike_city_tools.graph_utils import (
 from ebike_city_tools.utils import match_od_with_nodes
 from snman.constants import *
 import snman
+import warnings
 
+warnings.filterwarnings("ignore")
 PERIMETER = "_debug"
-whole_city_od_path = "../street_network_data/birchplatz/raw_od_matrix/od_whole_city.csv"
 
 
-def snman_rebuilding(data_directory, output_path):
+def snman_rebuilding(
+    data_directory,
+    output_path,
+    whole_city_od_path: str,  # TODO: would need to pass it to rebuild_regions function as an argument for the LP
+):
     inputs_path = os.path.join(data_directory, "inputs")
     process_path = os.path.join(data_directory, "process", PERIMETER)
     export_path = os.path.join(data_directory, "outputs", PERIMETER)
@@ -106,7 +112,9 @@ def apply_changes_to_street_graph(street_graph_init: pd.DataFrame, G_lane_modifi
     return street_graph_init
 
 
-def rebuild_street_network(data_directory: str, output_path: str, out_attr_name: str = "ln_desc_after"):
+def rebuild_street_network(
+    data_directory: str, output_path: str, whole_city_od_path: str, out_attr_name: str = "ln_desc_after"
+):
     """
     Own implementation of rebuilding
     """
@@ -170,6 +178,96 @@ def rebuild_street_network(data_directory: str, output_path: str, out_attr_name:
     street_graph_edges.to_csv(os.path.join(output_path, "rebuild_full_graph.csv"), index=True)
 
 
+def optimize_region(args):
+    G_lane_region, od_df, save_intermediate_path = args
+    # optimize region
+    optimized_G_lane = lane_optimization(
+        G_lane_region,
+        od_df,
+    )
+    # save the intermediate result
+    nx.to_pandas_edgelist(optimized_G_lane, edge_key="key").to_csv(save_intermediate_path)
+    return optimize_region
+
+
+def rebuild_street_network_parallel(
+    data_directory: str, output_path: str, whole_city_od_path: str, out_attr_name: str = "ln_desc_after"
+):
+    # 1) LOADING
+    # load lane graph - MultiDiGraph
+    graph_path = os.path.join(data_directory, "process", PERIMETER)
+    # load nodes and edges dataframes
+    street_graph_nodes, street_graph_edges = load_nodes_edges_dataframes(
+        graph_path,
+        node_fn="street_graph_nodes.gpkg",
+        edge_fn="street_graph_edges.gpkg",
+        remove_multistreets=True,
+        target_crs=CRS_internal,
+    )
+    # create lane graph
+    G_lane = street_to_lane_graph(street_graph_nodes, street_graph_edges, target_crs=CRS_internal)
+    assert street_graph_edges["key"].nunique() == 1
+    assert len(street_graph_edges) == len(street_graph_edges.reset_index().drop_duplicates(["u", "v"]))
+
+    # initialize with the original lanes
+    street_graph_edges[out_attr_name] = street_graph_edges["ln_desc"]
+
+    rebuilding_regions_gdf = gpd.read_file(
+        os.path.join(data_directory, "inputs", "rebuilding_regions", "rebuilding_regions.gpkg")
+    ).to_crs(G_lane.graph["crs"])
+
+    # 2) Initialize multiprocessing.Pool()
+    pool = Pool(cpu_count())
+
+    # 3) Prepare arguments for processing each region
+    args_list = []
+    for i, rebuilding_region in rebuilding_regions_gdf.iterrows():
+        # get the region polygon
+        polygon = rebuilding_region["geometry"]
+
+        # make a graph cutout based on the region geometry and skip this region if the resulting subgraph is empty
+        try:
+            G_lane_region = osmnx.truncate.truncate_graph_polygon(G_lane, polygon, quadrat_width=100, retain_all=True)
+        except ValueError:
+            # print("Skipping empty region ", i)
+            continue
+        if len(G_lane_region.edges) == 0:
+            # print("Skipping empty region ", i)
+            continue
+
+        G_lane_region = keep_only_the_largest_connected_component(G_lane_region)
+
+        # make OD matrix for this region
+        node_gdf = nodes_to_geodataframe(G_lane_region, crs=CRS_internal)
+        od_df = match_od_with_nodes(station_data_path=whole_city_od_path, nodes=node_gdf)
+
+        print("\n--------\nRebuilding region", i, rebuilding_region["description"])
+        print(
+            "Regions graph size (connected comp)",
+            G_lane_region.number_of_nodes(),
+            G_lane_region.number_of_edges(),
+            "OD size:",
+            len(od_df),
+        )
+
+        save_intermediate_path = os.path.join(output_path, f"rebuild_region_{i}_graph.csv")
+
+        # append to input arguments for parallel processing
+        args_list.append([G_lane_region, od_df, save_intermediate_path])
+
+    # 4) Process each region in parallel, collect results (the optimized lane graphs)
+    results = pool.map(optimize_region, args_list)
+
+    # Combine the results and apply to the original street graph
+    for optimized_G_lane in results:
+        street_graph_edges = apply_changes_to_street_graph(
+            street_graph_edges, nx.to_pandas_edgelist(optimized_G_lane, edge_key="key")
+        )
+
+    pool.close()
+    pool.join()
+
+
 CRS_internal = 2056  # for Zurich
 CRS_for_export = 4326
 
@@ -178,6 +276,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("-d", "--data_dir", type=str, default="../snman/examples/data_v2")
     parser.add_argument("-o", "--out_dir", type=str, default="outputs/rebuild_zurich")
+    parser.add_argument(
+        "-w", "--od_path", type=str, default="../street_network_data/zurich/raw_od_matrix/od_whole_city.csv"
+    )
     args = parser.parse_args()
 
     data_dir = args.data_dir
@@ -186,4 +287,6 @@ if __name__ == "__main__":
 
     # snman_rebuilding(data_dir, output_dir)
 
-    rebuild_street_network(data_dir, output_dir)
+    # rebuild_street_network(data_dir, output_dir, args.od_path)
+
+    rebuild_street_network_parallel(data_dir, output_dir, args.od_path)

@@ -129,8 +129,6 @@ def lane_optimization(
     if od_df is None:
         od["trips"] = 1  # if all weightings are 0, it doesn't work, so we have to set it to 1 in this case
 
-    od = extend_od_circular(od, list(G_lane.nodes()))
-
     print(f"Optimizing lane graph, {G_lane.number_of_edges()} edges and {G_lane.number_of_nodes()} nodes")
     print(f"with {len(od)} OD pairs")
 

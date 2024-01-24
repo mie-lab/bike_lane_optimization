@@ -326,14 +326,14 @@ def match_od_with_nodes(station_data_path: str, nodes: gpd.GeoDataFrame):
         return LineString([[row["start_lng"], row["start_lat"]], [row["end_lng"], row["end_lat"]]])
 
     station_data = pd.read_csv(station_data_path)
-    print("Whole city OD matrix", len(station_data))
+    # print("Whole city OD matrix", len(station_data))
 
     # create linestring and convert to geodataframe
     station_data["geometry"] = station_data.apply(linestring_from_coords, axis=1)
     station_data = gpd.GeoDataFrame(station_data)
     station_data.set_geometry("geometry", inplace=True)
 
-    if "birchplatz" in station_data_path or "affoltern" in station_data_path:
+    if "birchplatz" in station_data_path or "affoltern" in station_data_path or "zurich" in station_data_path:
         original_crs = "EPSG:2056"
         station_data.crs = original_crs
         nodes.to_crs(2056, inplace=True)
@@ -353,8 +353,6 @@ def match_od_with_nodes(station_data_path: str, nodes: gpd.GeoDataFrame):
     # select only the rows where the linestring intersects the area polygon
     area_polygon = gpd.GeoDataFrame(geometry=[nodes.geometry.unary_union.convex_hull], crs=nodes.crs)
     trips = station_data.sjoin(area_polygon)
-
-    print("Number of trips intersetcing the area", len(trips))
 
     # get the closest nodes to the respective destination
     trips["geom_destination"] = gpd.points_from_xy(x=trips["end_lng"], y=trips["end_lat"])
@@ -460,3 +458,17 @@ def valid_arcs_spatial_selection(od: pd.DataFrame, G_base: nx.DiGraph, k_closest
         # make the subgraph of all selected nodes
         valid_arcs[od_pair] = determine_arcs_between_vertices(G_base, nodes_for_subgraph)
     return valid_arcs
+
+
+def fix_edges_from_attribute(G_lane: nx.MultiDiGraph, attr_value_dict: dict) -> None:
+    """Set attributed 'fixed' to true in G_lane if and only if one of the conditions in attr_value_dict holds"""
+    fixed = {}
+    for u, v, k, data in G_lane.edges(keys=True, data=True):
+        # by default, not fixed
+        fixed[(u, v, k)] = False
+        # if any of the conditions are True, fix edge
+        for attr, attr_value in attr_value_dict.items():
+            if data[attr] in attr_value:
+                fixed[(u, v, k)] = True
+                break
+    nx.set_edge_attributes(G_lane, fixed, "fixed")
