@@ -15,31 +15,31 @@ from ebike_city_tools.graph_utils import (
     filter_graph_by_attribute,
 )
 from ebike_city_tools.iterative_algorithms import betweenness_pareto
-from ebike_city_tools.utils import match_od_with_nodes, fix_edges_from_attribute
+from ebike_city_tools.utils import fix_edges_from_attribute
+from ebike_city_tools.od_utils import match_od_with_nodes, reduce_od_by_trip_ratio
 from snman.constants import *
 import snman
 import warnings
 
 warnings.filterwarnings("ignore")
-PERIMETER = "_debug"
 
 ALGORITHM = "optimize"  #  "betweenness"
-NUM_OPTIMIZATIONS = 5
+NUM_OPTIMIZATIONS = 10
 EDGE_FRACTION = 0.4
 CAR_WEIGHT = 4
 VALID_EDGES_K = 0
-
-save_name_mapping = {"zurich main roads customized": "zrh-main"}
+REDUCE_OD_FOR_MAIN_ROADS = 0.6
 
 
 def snman_rebuilding(
-    data_directory,
-    output_path,
+    data_directory: str,
+    output_path: str,
     whole_city_od_path: str,  # TODO: would need to pass it to rebuild_regions function as an argument for the LP
+    perimeter="zurich",
 ):
     inputs_path = os.path.join(data_directory, "inputs")
-    process_path = os.path.join(data_directory, "process", PERIMETER)
-    export_path = os.path.join(data_directory, "outputs", PERIMETER)
+    process_path = os.path.join(data_directory, "process", perimeter)
+    export_path = os.path.join(data_directory, "outputs", perimeter)
 
     print("Load street graph")
     G = snman.io.load_street_graph(
@@ -128,9 +128,10 @@ def optimize_region(args):
     tic = time.time()
     if ALGORITHM == "optimize":
         # set parameters based on graph size
+        m = G_lane_region.number_of_edges()
         params = {
-            "optimize_every_x": int(G_lane_region.number_of_edges() / NUM_OPTIMIZATIONS),
-            "valid_edges_k": VALID_EDGES_K,
+            "optimize_every_x": int(m / NUM_OPTIMIZATIONS),
+            "valid_edges_k": VALID_EDGES_K if m < 1000 else 50,
             "car_weight": CAR_WEIGHT,
         }
         # optimize region
@@ -153,10 +154,9 @@ def rebuild_street_network_parallel(
     tic = time.time()
     # 1) LOADING
     # load lane graph - MultiDiGraph
-    graph_path = os.path.join(data_directory, "process", PERIMETER)
     # load nodes and edges dataframes
     street_graph_nodes, street_graph_edges = load_nodes_edges_dataframes(
-        graph_path,
+        data_directory,
         node_fn="street_graph_nodes.gpkg",
         edge_fn="street_graph_edges.gpkg",
         remove_multistreets=True,
@@ -170,13 +170,13 @@ def rebuild_street_network_parallel(
     # initialize with the original lanes
     street_graph_edges[out_attr_name] = street_graph_edges["ln_desc"]
 
-    rebuilding_regions_gdf = gpd.read_file(
-        os.path.join(data_directory, "inputs", "rebuilding_regions", "rebuilding_regions.gpkg")
-    ).to_crs(G_lane.graph["crs"])
+    rebuilding_regions_gdf = gpd.read_file(os.path.join(data_directory, "rebuilding_regions.gpkg")).to_crs(
+        G_lane.graph["crs"]
+    )
 
     # 2) Prepare arguments for processing each region
     args_list = []
-    index_counter, put_to_end = 0, 0
+    index_counter, put_to_end = 0, []
     for i, rebuilding_region in rebuilding_regions_gdf.iterrows():
         # get the region polygon
         polygon = rebuilding_region["geometry"]
@@ -191,7 +191,7 @@ def rebuild_street_network_parallel(
             # print("Skipping empty region ", i)
             continue
 
-        name = save_name_mapping.get(rebuilding_region["description"], rebuilding_region["description"])
+        name = rebuilding_region["description"]
         print("\n--------\nBuilding subgraph for region", i, name)
 
         # filter for included streets
@@ -202,9 +202,10 @@ def rebuild_street_network_parallel(
                 included_streets,
             )
             G_lane_region = filter_graph_by_attribute(G_lane_region, "hierarchy", included_streets.split(","))
-            print(G_lane_region.number_of_edges())
+            print("number of edges after filtering", G_lane_region.number_of_edges())
             # remember that we process the main streets only in the end when merging into main graph
-            put_to_end = index_counter
+            put_to_end.append(index_counter)
+            print("will be processed at the end")
 
         # fix streets to be fixed (not to be converted to bike lanes)
         fix_streets = rebuilding_region["hierarchies_to_fix"]
@@ -221,6 +222,9 @@ def rebuild_street_network_parallel(
         # make OD matrix for this region
         node_gdf = nodes_to_geodataframe(G_lane_region, crs=CRS_internal)
         od_df = match_od_with_nodes(station_data_path=whole_city_od_path, nodes=node_gdf)
+        if "main" in name:
+            print("reducing OD matrix size...")
+            od_df = reduce_od_by_trip_ratio(od_df, REDUCE_OD_FOR_MAIN_ROADS)
 
         print(
             "Regions graph size (connected comp)",
@@ -245,16 +249,17 @@ def rebuild_street_network_parallel(
 
     # Combine the results and apply to the original street graph
     for i, optimized_G_lane in enumerate(results):
-        if i == put_to_end:
+        if i in put_to_end:
             continue
         street_graph_edges = apply_changes_to_street_graph(
             street_graph_edges, nx.to_pandas_edgelist(optimized_G_lane, edge_key="key")
         )
     # apply main roads in the very end (note: currently not really necessary because bike lanes are never turned back)
     # into car lanes
-    street_graph_edges = apply_changes_to_street_graph(
-        street_graph_edges, nx.to_pandas_edgelist(results[put_to_end], edge_key="key")
-    )
+    for i in put_to_end:
+        street_graph_edges = apply_changes_to_street_graph(
+            street_graph_edges, nx.to_pandas_edgelist(results[i], edge_key="key")
+        )
 
     pool.close()
     pool.join()
@@ -273,7 +278,7 @@ CRS_for_export = 4326
 # Set these paths according to your own setup
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("-d", "--data_dir", type=str, default="../snman/examples/data_v2")
+    parser.add_argument("-d", "--data_dir", type=str, default="../street_network_data/zurich")
     parser.add_argument("-o", "--out_dir", type=str, default="outputs/rebuild_zurich")
     parser.add_argument(
         "-w", "--od_path", type=str, default="../street_network_data/zurich/raw_od_matrix/od_whole_city.csv"
