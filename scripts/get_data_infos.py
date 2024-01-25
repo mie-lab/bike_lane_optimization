@@ -4,7 +4,9 @@ import geopandas as gpd
 import pandas as pd
 import networkx as nx
 
-from ebike_city_tools.utils import extend_od_circular, fix_multilane_bike_lanes
+
+from ebike_city_tools.od_utils import extend_od_circular
+from ebike_city_tools.utils import fix_multilane_bike_lanes
 from ebike_city_tools.graph_utils import load_lane_graph, keep_only_the_largest_connected_component
 
 if __name__ == "__main__":

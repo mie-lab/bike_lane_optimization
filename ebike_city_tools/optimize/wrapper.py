@@ -4,10 +4,7 @@ import numpy as np
 import os
 import warnings
 
-from ebike_city_tools.utils import (
-    extend_od_circular,
-    match_od_with_nodes,
-)
+from ebike_city_tools.od_utils import match_od_with_nodes, extend_od_circular
 from ebike_city_tools.graph_utils import (
     filter_by_attribute,
     remove_node_attribute,

@@ -12,7 +12,7 @@ from ebike_city_tools.graph_utils import (
     keep_only_the_largest_connected_component,
     load_lane_graph,
 )
-from ebike_city_tools.utils import extend_od_circular
+from ebike_city_tools.od_utils import extend_od_circular
 from ebike_city_tools.optimize.rounding_utils import combine_paretos_from_path, combine_pareto_frontiers
 from ebike_city_tools.iterative_algorithms import betweenness_pareto, topdown_betweenness_pareto
 from ebike_city_tools.optimize.round_optimized import ParetoRoundOptimize
