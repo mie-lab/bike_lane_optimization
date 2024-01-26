@@ -167,6 +167,15 @@ def rebuild_street_network_parallel(
     assert street_graph_edges["key"].nunique() == 1
     assert len(street_graph_edges) == len(street_graph_edges.reset_index().drop_duplicates(["u", "v"]))
 
+    print(
+        "Street graph size",
+        len(street_graph_nodes),
+        len(street_graph_edges),
+        "Lane graph size",
+        G_lane.number_of_nodes(),
+        G_lane.number_of_edges(),
+    )
+
     # initialize with the original lanes
     street_graph_edges[out_attr_name] = street_graph_edges["ln_desc"]
 

@@ -19,6 +19,7 @@ import json
 import psycopg2
 import geopandas as gpd
 import shapely.ops
+from ebike_city_tools.graph_utils import street_to_lane_graph
 
 
 def join_with_geometry(edges, edges_geom):
@@ -54,6 +55,42 @@ def join_with_geometry(edges, edges_geom):
     return edges_w_geom
 
 
+def whole_city_graph_to_postgis(
+    path_input="../street_network_data/zurich/street_graph_nodes.gpkg",
+    path_output="outputs/rebuild_zurich/optimization_10_zurich/rebuild_whole_graph.gpkg",
+):
+    rebuild_output = gpd.read_file(path_output)
+    rebuild_nodes = gpd.read_file(path_input)
+    rebuild_output["ln_desc"] = rebuild_output["ln_desc_after"]
+    print("bike lanes in rebuild graph", sum(rebuild_output["ln_desc_after"].str.contains("P")))
+
+    include_lanetypes = ["H>", "H<", "M>", "M<", "M-", "T>", "<T", "P-", "L>", "<L"]
+    rebuild_output["ln_desc"] = rebuild_output["ln_desc"].str.replace("P", "P-")
+    lane_graph = street_to_lane_graph(
+        rebuild_nodes.set_index("osmid").to_crs(2056),
+        rebuild_output.set_index(["u", "v"]),
+        include_lanetypes=include_lanetypes,
+    )
+
+    lane_gdf = nx.to_pandas_edgelist(lane_graph, edge_key="key")
+    print("lane types in lane graph", lane_gdf["lanetype"].unique())
+    lane_with_geometry = join_with_geometry(lane_gdf, rebuild_output[["u", "v", "geometry"]])
+
+    # group by
+    group_attrs = ["source", "target", "lanetype"]
+    agg_dict = {attr: "first" for attr in lane_with_geometry.columns if attr not in group_attrs}
+    agg_dict.update({"lanetype": "count"})
+    save_graph = (
+        lane_with_geometry.groupby(group_attrs).agg(agg_dict).rename({"lanetype": "count"}, axis=1).reset_index()
+    )
+    save_graph = gpd.GeoDataFrame(save_graph, geometry="geometry", crs=rebuild_output.crs)
+
+    print(save_graph)
+    # to postgis
+    lane_with_geometry.to_postgis("zurich_rebuild", con_mie, schema="graphs", if_exists="replace", index=False)
+    print("Written lane graph to postgis", len(lane_with_geometry))
+
+
 with open("../../dblogin_mielab.json", "r") as infile:
     db_credentials_mie = json.load(infile)
     db_credentials_mie["database"] = "ebikecity"
@@ -76,7 +113,8 @@ include_attributes = [
 ]
 con_mie = create_engine("postgresql+psycopg2://", creator=get_con_mie)
 
-if __name__ == "__main__":
+
+def write_all_graphs_to_postgis():
     IN_PATH_DATA = "../street_network_data/"
     IN_PATH_OUTPUTS = "outputs/cluster_graphs"
     for instance in os.listdir(IN_PATH_OUTPUTS):
@@ -136,3 +174,7 @@ if __name__ == "__main__":
             out_name = f"edges_{algorithm}_bikelanes{edges_allocated}"
             save_graph.to_postgis(f"{instance}_{out_name}", con_mie, schema="graphs", if_exists="replace", index=False)
             print("Written graph to database", f"{instance}_{out_name}")
+
+
+if __name__ == "__main__":
+    whole_city_graph_to_postgis()
