@@ -143,7 +143,7 @@ def lane_optimization_snman(
     L_existing=None,
     street_graph=None,
     width_attribute=None,
-    od_df_path="../street_network_data/birchplatz/raw_od_matrix/od_whole_city.csv",
+    od_df_path="../street_network_data/zurich/raw_od_matrix/od_whole_city.csv",
     edge_fraction=0.4,
     optimize_params=BASE_OPTIMIZE_PARAMS,
     verbose=True,
