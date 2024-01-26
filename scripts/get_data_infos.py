@@ -4,8 +4,10 @@ import geopandas as gpd
 import pandas as pd
 import networkx as nx
 
-from ebike_city_tools.utils import extend_od_circular
-from run_real_data import generate_motorized_lane_graph
+
+from ebike_city_tools.od_utils import extend_od_circular
+from ebike_city_tools.utils import fix_multilane_bike_lanes
+from ebike_city_tools.graph_utils import load_lane_graph, keep_only_the_largest_connected_component
 
 if __name__ == "__main__":
     res = []
@@ -20,13 +22,14 @@ if __name__ == "__main__":
         "chicago_2",
         "chicago",
     ]:
+        print("getting infos for city", city)
         path = os.path.join("..", "street_network_data", city)
         np.random.seed(42)  # random seed for extending the od matrix
         # generate lane graph with snman
         edge_len_initial = len(gpd.read_file(os.path.join(path, "edges_all_attributes.gpkg")))
-        G_lane = generate_motorized_lane_graph(
-            os.path.join(path, "edges_all_attributes.gpkg"), os.path.join(path, "nodes_all_attributes.gpkg")
-        )
+
+        G_lane = load_lane_graph(path)
+        G_lane = keep_only_the_largest_connected_component(G_lane)
 
         # load OD
         od = pd.read_csv(os.path.join(path, "od_matrix.csv"))
@@ -39,6 +42,8 @@ if __name__ == "__main__":
 
         od = extend_od_circular(od, node_list)
 
+        multi_edges = len(fix_multilane_bike_lanes(G_lane, check_for_existing=False))
+
         res.append(
             {
                 "name": city,
@@ -47,7 +52,7 @@ if __name__ == "__main__":
                 "edges": G_lane.number_of_edges(),
                 "od": od_size_before_extend,
                 "od_after_extend": len(od),
-                "multi-edges": G_lane.number_of_edges() - nx.DiGraph(G_lane).number_of_edges(),
+                "multi-edges": multi_edges,
             }
         )
     res = pd.DataFrame(res)

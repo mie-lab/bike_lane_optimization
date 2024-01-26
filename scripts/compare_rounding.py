@@ -4,7 +4,7 @@ import argparse
 import pandas as pd
 import matplotlib.pyplot as plt
 from ebike_city_tools.synthetic import random_lane_graph, make_fake_od
-from ebike_city_tools.utils import extend_od_circular
+from ebike_city_tools.od_utils import extend_od_circular
 from ebike_city_tools.optimize.round_optimized import ParetoRoundOptimize
 from ebike_city_tools.iterative_algorithms import topdown_betweenness_pareto, betweenness_pareto
 

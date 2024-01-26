@@ -7,27 +7,16 @@ import numpy as np
 import geopandas as gpd
 import networkx as nx
 
-from ebike_city_tools.optimize.linear_program import define_IP
-from ebike_city_tools.utils import (
+from ebike_city_tools.graph_utils import (
     lane_to_street_graph,
-    extend_od_circular,
-    output_to_dataframe,
-    output_lane_graph,
+    keep_only_the_largest_connected_component,
+    load_lane_graph,
 )
+from ebike_city_tools.optimize.wrapper import generate_motorized_lane_graph
+from ebike_city_tools.od_utils import extend_od_circular
 from ebike_city_tools.optimize.rounding_utils import combine_paretos_from_path, combine_pareto_frontiers
-from ebike_city_tools.optimize.round_simple import pareto_frontier, rounding_and_splitting
 from ebike_city_tools.iterative_algorithms import betweenness_pareto, topdown_betweenness_pareto
-from ebike_city_tools.optimize.wrapper import adapt_edge_attributes
 from ebike_city_tools.optimize.round_optimized import ParetoRoundOptimize
-
-from snman import distribution, street_graph, graph, io, merge_edges, lane_graph, rebuilding
-from snman.constants import (
-    KEY_LANES_DESCRIPTION,
-    KEY_LANES_DESCRIPTION_AFTER,
-    MODE_PRIVATE_CARS,
-    KEY_GIVEN_LANES_DESCRIPTION,
-    MODE_CYCLING,
-)
 
 ROUNDING_METHOD = "round_bike_optimize"
 IGNORE_FIXED = True
@@ -42,42 +31,6 @@ algorithm_dict = {
 }
 
 od_quantile_used = {"chicago": 0.9, "cambridge": 0.5}  # set this with the final parameters
-
-
-def generate_motorized_lane_graph(
-    edge_path,
-    node_path,
-    source_lanes_attribute=KEY_LANES_DESCRIPTION,
-    target_lanes_attribute=KEY_LANES_DESCRIPTION_AFTER,
-    return_H=False,
-):
-    G = io.load_street_graph(edge_path, node_path)  # initialize lanes after rebuild
-    print("Initial street graph edges:", G.number_of_edges())
-    # need to save the maxspeed attribute here to use it later
-    nx.set_edge_attributes(G, nx.get_edge_attributes(G, source_lanes_attribute), target_lanes_attribute)
-    # ensure consistent edge directions (only from lower to higher node!)
-    street_graph.organize_edge_directions(G)
-
-    # # for using multi_set_given:
-    # if len(nx.get_edge_attributes(G, "grade")) == 0:
-    #     nx.set_edge_attributes(G, 0, "grade")
-    # rebuilding.multi_set_given_lanes(G)
-    distribution.set_given_lanes(G)
-    H = street_graph.filter_lanes_by_modes(G, {MODE_PRIVATE_CARS}, lane_description_key=KEY_GIVEN_LANES_DESCRIPTION)
-
-    merge_edges.reset_intermediate_nodes(H)
-    merge_edges.merge_consecutive_edges(H, distinction_attributes={KEY_LANES_DESCRIPTION_AFTER})
-    # make lane graph
-    L = lane_graph.create_lane_graph(H, KEY_GIVEN_LANES_DESCRIPTION)
-    print("Initial lane graph edges:", L.number_of_edges())
-    # make sure that the graph is strongly connected
-    L = graph.keep_only_the_largest_connected_component(L)
-    print("Lane graph edges after keeping connected component:", L.number_of_edges())
-    # add some edge attributes that we need for the optimization (e.g. slope)
-    L = adapt_edge_attributes(L, ignore_fixed=IGNORE_FIXED)
-    if return_H:
-        return H, L
-    return L
 
 
 if __name__ == "__main__":
@@ -117,10 +70,16 @@ if __name__ == "__main__":
     os.makedirs(out_path, exist_ok=True)
 
     np.random.seed(42)  # random seed for extending the od matrix
-    # generate lane graph with snman
+    # # V1: generate lane graph with my code
+    # G_lane = load_lane_graph(path)
+    # print("Loaded lane graph:", G_lane.number_of_nodes(), G_lane.number_of_edges())
+    # G_lane = keep_only_the_largest_connected_component(G_lane)
+    # print("Size after reducing to connected comp:", G_lane.number_of_nodes(), G_lane.number_of_edges())
+    # V2: SNMan lane graph
     G_lane = generate_motorized_lane_graph(
         os.path.join(path, "edges_all_attributes.gpkg"), os.path.join(path, "nodes_all_attributes.gpkg")
     )
+
     # save lane graph
     # import pickle
     # with open("real_lane_graph.p", "wb") as outfile:

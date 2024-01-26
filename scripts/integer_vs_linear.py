@@ -6,7 +6,8 @@ import pandas as pd
 from ebike_city_tools.synthetic import random_lane_graph, make_fake_od
 from ebike_city_tools.metrics import compute_travel_times
 from ebike_city_tools.optimize.optimizer import Optimizer
-from ebike_city_tools.utils import lane_to_street_graph, extend_od_circular
+from ebike_city_tools.od_utils import extend_od_circular
+from ebike_city_tools.graph_utils import lane_to_street_graph
 from ebike_city_tools.optimize.round_simple import graph_from_integer_solution
 from ebike_city_tools.optimize.round_optimized import ParetoRoundOptimize
 

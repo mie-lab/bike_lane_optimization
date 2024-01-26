@@ -6,7 +6,7 @@ import pyproj
 import geopandas as gpd
 from shapely.geometry import LineString
 
-from ebike_city_tools.utils import match_od_with_nodes
+from ebike_city_tools.od_utils import match_od_with_nodes, reduce_od_by_trip_ratio
 
 CH1903 = "epsg:21781"
 LV05 = CH1903
@@ -107,39 +107,13 @@ def match_od_with_nodes_path(data_path: str) -> pd.DataFrame:
     """
     nodes = gpd.read_file(os.path.join(data_path, "nodes_all_attributes.gpkg"))
     station_data_path = os.path.join(data_path, "raw_od_matrix", "od_whole_city.csv")
-    match_od_with_nodes(station_data_path, nodes)
-
-
-def reduce_od_by_trip_ratio(od: pd.DataFrame, trip_ratio: float = 0.75) -> pd.DataFrame:
-    """
-    Reduce OD matrix by including only the x trips that collectively make up for <trip_ratio> of the trips
-
-    Args:
-        od (pd.DataFrame): OD matrix with columns s, t, trips
-        trip_ratio (float, optional): Ratio of trips that the OD paths need to make up. Defaults to 0.75.
-
-    Returns:
-        pd.DataFrame: reduced OD matrix
-    """
-    # Sort the DataFrame by visits in descending order
-    df_sorted = od.sort_values(by="trips", ascending=False)
-
-    # Calculate the cumulative sum of visits
-    df_sorted["cumulative_trips"] = df_sorted["trips"].cumsum()
-
-    # Calculate the total sum of visits
-    total_visits = df_sorted["trips"].sum()
-
-    # Find the s-t pairs where the cumulative sum of trips is just over trip_ratio
-    threshold = total_visits * trip_ratio
-    most_frequent_trips = df_sorted[df_sorted["cumulative_trips"] <= threshold]
-    return most_frequent_trips.drop(["cumulative_trips"], axis=1)
+    return match_od_with_nodes(station_data_path, nodes)
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("-d", "--data_path", default="../street_network_data/affoltern", type=str)
-    parser.add_argument("-r", "--trip_ratio", default=0.75, type=float)
+    parser.add_argument("-r", "--trip_ratio", default=0.8, type=float)
     args = parser.parse_args()
 
     data_path = args.data_path

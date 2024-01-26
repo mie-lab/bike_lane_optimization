@@ -3,9 +3,13 @@ import networkx as nx
 import numpy as np
 import pandas as pd
 import geopandas as gpd
-from collections import defaultdict
 from scipy.spatial.distance import cdist
 from shapely.geometry import LineString
+from ebike_city_tools.graph_utils import (
+    transfer_node_attributes,
+    determine_vertices_on_shortest_paths,
+    determine_arcs_between_vertices,
+)
 
 
 def output_to_dataframe(streetIP, G: nx.DiGraph, fixed_edges: pd.DataFrame = pd.DataFrame()) -> pd.DataFrame:
@@ -102,50 +106,6 @@ def result_to_streets(capacity_df):
     return together
 
 
-def lossless_to_undirected(graph):
-    """
-    Convert a directed multi graph into an undirected multigraph without loosing any edges
-    Note: the networkx to_undirected() method converts each pair of reciprocal edges into a single undirected edge
-    """
-    edges = list(graph.edges(data=True))
-    graph_unwo_edges = graph.copy()
-    edges_to_remove = list(graph_unwo_edges.edges())
-    graph_unwo_edges.remove_edges_from(edges_to_remove)
-    graph_undir = nx.MultiGraph(graph_unwo_edges)
-    graph_undir.add_edges_from(edges)
-    return graph_undir
-
-
-def lane_to_street_graph(g_lane):
-    # transform into an undirected street graph
-    g_street = nx.Graph(g_lane)
-    caps_g_street = defaultdict(int)
-    # iterate over the original edges and set capacities (same for forward and backward edge)
-    for u, v, d in g_lane.edges(data=True):
-        if u < v:
-            caps_g_street[(u, v)] += d["capacity"]  # add the capacity of this lane
-        else:
-            caps_g_street[(v, u)] += d["capacity"]
-    nx.set_edge_attributes(g_street, caps_g_street, "capacity")
-
-    # now make it directed -> will automatically replace every edge by two
-    g_street = g_street.to_directed()
-
-    # get original gradients
-    for u, v in g_street.edges():
-        if (u, v) in g_lane.edges():
-            g_street[u][v]["gradient"] = g_lane[u][v][list(g_lane[u][v].keys())[0]]["gradient"]
-        # only the edge in the opposite direction existed in the original graph
-        elif (v, u) in g_lane.edges():
-            g_street[u][v]["gradient"] = -1 * g_lane[v][u][list(g_lane[v][u].keys())[0]]["gradient"]
-        else:
-            raise RuntimeError(
-                "This should not happen, all edges in g_street should be in g_lane in one dir or the other"
-            )
-    assert nx.is_strongly_connected(g_street)
-    return g_street
-
-
 def fix_multilane_bike_lanes(G_lane: nx.MultiDiGraph, check_for_existing: bool = False) -> list:
     """
     Takes a graph and converts one lane from all multi-lanes to a bike lane (if there is no bike lane yet)
@@ -161,7 +121,8 @@ def fix_multilane_bike_lanes(G_lane: nx.MultiDiGraph, check_for_existing: bool =
     edges_to_transform = []
     for u in G_lane.nodes():
         for v in G_lane.neighbors(u):
-            if G_lane.number_of_edges(u, v) > 1:
+            # check whether there is a double lane AND there is also at least one edge in the other direction
+            if G_lane.number_of_edges(u, v) > 1 and G_lane.number_of_edges(v, u) > 0:
                 # if there is already a bike lane, skip (only if we don't reallocate existing bike lanes)
                 if check_for_existing and "lanetype" in G_lane[u][v].items():
                     lanetypes = {k: d["lanetype"] for k, d in G_lane[u][v].items()}
@@ -181,119 +142,6 @@ def fix_multilane_bike_lanes(G_lane: nx.MultiDiGraph, check_for_existing: bool =
                         # print("converted", u, v, key, "to bike lane")
                         break
     return edges_to_transform
-
-
-def deprecated_lane_to_street_graph(G_lane):
-    # convert to dataframe
-    G_dataframe = nx.to_pandas_edgelist(G_lane)
-    G_dataframe = G_dataframe[["source", "target", "capacity", "gradient", "distance", "speed_limit"]]
-    # remove loops
-    G_dataframe = G_dataframe[G_dataframe["source"] != G_dataframe["target"]]
-    # make undirected graph
-    G_dataframe["source undir"] = G_dataframe[["source", "target"]].min(axis=1)
-    G_dataframe["target undir"] = G_dataframe[["source", "target"]].max(axis=1)
-    # G_dataframe.apply(lambda x: tuple(sorted([x["source"], x["target"]])), axis=1)
-    # aggregate to get undirected
-    undirected_edges = G_dataframe.groupby(["source undir", "target undir"]).agg(
-        {"capacity": "sum", "distance": "first", "speed_limit": "first"}
-    )
-
-    # generate gradient first only for the ones where source < target
-    grad_per_dir_edge = G_dataframe.groupby(["source", "target"])["gradient"].first().reset_index()
-    grad_per_dir_edge = grad_per_dir_edge[grad_per_dir_edge["target"] > grad_per_dir_edge["source"]]
-    undirected_edges["gradient"] = grad_per_dir_edge.set_index(["source", "target"]).to_dict()["gradient"]
-
-    # make the same edges in the reverse direction -> gradient * (-1)
-    reverse_edges = undirected_edges.reset_index()
-    reverse_edges["source"] = reverse_edges["target undir"]
-    reverse_edges["target"] = reverse_edges["source undir"]
-    reverse_edges["gradient"] = reverse_edges["gradient"] * (-1)
-    # concatenate
-    directed_edges = pd.concat(
-        [
-            undirected_edges.reset_index().rename({"source undir": "source", "target undir": "target"}, axis=1),
-            reverse_edges.drop(["source undir", "target undir"], axis=1),
-        ]
-    ).reset_index(drop=True)
-
-    G_streets = nx.from_pandas_edgelist(
-        directed_edges,
-        source="source",
-        target="target",
-        edge_attr=["capacity", "distance", "gradient", "speed_limit"],
-        create_using=nx.DiGraph,
-    )
-    # set attributes (not really needed)
-    # attrs = {i: {"loc": coords[i, :2], "elevation": coords[i, 2]} for i in range(len(coords))}
-    # nx.set_node_attributes(G_streets, attrs)
-    return G_streets
-
-
-def extend_od_circular(od, nodes):
-    """
-    Create new OD matrix that ensures connectivity by connecting one node to the next in a list
-    od: pd.DataFrame, original OD with columns s, t and trips_per_day
-    nodes: list, all nodes in the graph
-    """
-    # shuffle and convert to df
-    new_od_paths = pd.DataFrame(nodes, columns=["s"]).sample(frac=1).reset_index(drop=True)
-    # shift by one to ensure cirularity
-    new_od_paths["t"] = new_od_paths["s"].shift(1)
-    # fille nan
-    new_od_paths.loc[0, "t"] = new_od_paths.iloc[-1]["s"]
-
-    # concatenate and add flow of 0 to the new OD pairs
-    od_new = pd.concat([od, new_od_paths]).fillna(0).astype(int)
-
-    # make sure that no loops
-    od_new = od_new[od_new["s"] != od_new["t"]]
-    return od_new.drop_duplicates(subset=["s", "t"])
-
-
-def extend_od_matrix(od, nodes):
-    """
-    Extend the OD matrix such that every node appears as s and every node appears as t
-    od: initial OD matrix, represented as a pd.Dataframe
-    nodes: list of nodes in the graph
-    """
-
-    def get_missing_nodes(od_df):
-        nodes_not_in_s = [n for n in nodes if n not in od_df["s"].values]
-        nodes_not_in_t = [n for n in nodes if n not in od_df["t"].values]
-        return nodes_not_in_s, nodes_not_in_t
-
-    # find missing nodes
-    nodes_not_in_s, nodes_not_in_t = get_missing_nodes(od)
-    min_len = min([len(nodes_not_in_s), len(nodes_not_in_t)])
-    len_diff = max([len(nodes_not_in_s), len(nodes_not_in_t)]) - min_len
-    # combine every node of the longer list with a random permutation of the smaller list and add up
-    if min_len == len(nodes_not_in_t):
-        shuffled_t = np.random.permutation(nodes_not_in_t)
-        combined_nodes = np.concatenate(
-            [
-                np.stack([nodes_not_in_s[:min_len], shuffled_t]),
-                np.stack([nodes_not_in_s[min_len:], shuffled_t[:len_diff]]),
-            ],
-            axis=1,
-        )
-    else:
-        shuffled_s = np.random.permutation(nodes_not_in_s)
-        combined_nodes = np.concatenate(
-            [
-                np.stack([shuffled_s, nodes_not_in_t[:min_len]]),
-                np.stack([shuffled_s[:len_diff], nodes_not_in_t[min_len:]]),
-            ],
-            axis=1,
-        )
-    # transform to dataframe
-    new_od_paths = pd.DataFrame(combined_nodes.swapaxes(1, 0), columns=["s", "t"])
-    # concat and add a flow value of 0 since we don't want to optimize the travel time for these lanes
-    od_new = pd.concat([od, new_od_paths]).fillna(0)
-
-    # check again
-    nodes_not_in_s, nodes_not_in_t = get_missing_nodes(od_new)
-    assert len(nodes_not_in_s) == 0 and len(nodes_not_in_t) == 0
-    return od_new
 
 
 def compute_bike_time(distance, gradient):
@@ -396,128 +244,6 @@ def output_lane_graph(
     return G_final
 
 
-def remove_node_attribute(G, attr):
-    """Sets this attribute to zero for all nodes"""
-    nx.set_node_attributes(G, {n: 0 for n in G.nodes()}, attr)
-
-
-def remove_edge_attribute(G, attr):
-    """Sets this attribute to zero for all nodes"""
-    nx.set_edge_attributes(G, {e: 0 for e in G.edges()}, attr)
-
-
-def filter_by_attribute(G, attr, attr_value):
-    """
-    Create a subgraph of G consisting of the edges with attr=attr_value
-    """
-    edges_df = nx.to_pandas_edgelist(G)
-    edges_df = edges_df[edges_df[attr] == attr_value]
-    attr_cols = [c for c in edges_df.columns if c not in ["source", "target"]]
-    G_filtered = nx.from_pandas_edgelist(
-        edges_df, edge_attr=attr_cols, source="source", target="target", create_using=type(G)
-    )
-    # make sure that the other attributes are transferred to the new graph
-    G_filtered = transfer_node_attributes(G, G_filtered)
-    return G_filtered
-
-
-def nodes_to_geodataframe(G, crs=4326):
-    to_df = []
-    for n, d in G.nodes(data=True):
-        d_dict = {"osmid": n}
-        d_dict.update(d)
-        to_df.append(d_dict)
-    gdf = gpd.GeoDataFrame(to_df, geometry="geometry", crs=crs)
-    if crs == 4326 and abs(gdf.geometry.x.iloc[0]) > 200:
-        raise RuntimeError("the crs seems to be wrong. Please set a suitable crs")
-    return gdf
-
-
-def match_od_with_nodes(station_data_path: str, nodes: gpd.GeoDataFrame):
-    """
-    Match a OD matrix of coordinates with the node IDs
-
-    Args:
-        station_data_path (str): path to folder for one city (district)
-        nodes (gpd.GeoDataFrame): List of graph nodes with geometry
-    Returns:
-        pd.DataFrame with columns s, t and trips, containint origin and destination node id and the number of trips
-    """
-
-    def linestring_from_coords(row):
-        return LineString([[row["start_lng"], row["start_lat"]], [row["end_lng"], row["end_lat"]]])
-
-    station_data = pd.read_csv(station_data_path)
-    print("Whole city OD matrix", len(station_data))
-
-    # create linestring and convert to geodataframe
-    station_data["geometry"] = station_data.apply(linestring_from_coords, axis=1)
-    station_data = gpd.GeoDataFrame(station_data)
-    station_data.set_geometry("geometry", inplace=True)
-
-    if "birchplatz" in station_data_path or "affoltern" in station_data_path:
-        original_crs = "EPSG:2056"
-        station_data.crs = original_crs
-        nodes.to_crs(2056, inplace=True)
-    else:
-        original_crs = "EPSG:4326"
-        station_data.crs = original_crs
-        if "cambridge" in station_data_path:
-            nodes.to_crs("EPSG:2249", inplace=True)
-            station_data.to_crs("EPSG:2249", inplace=True)
-        elif "chicago" in station_data_path:
-            nodes.to_crs("EPSG:26971", inplace=True)
-            station_data.to_crs("EPSG:26971", inplace=True)
-        else:
-            raise NotImplementedError("Unknown city")
-        station_data = station_data[station_data.geometry.is_valid]
-
-    # select only the rows where the linestring intersects the area polygon
-    area_polygon = gpd.GeoDataFrame(geometry=[nodes.geometry.unary_union.convex_hull], crs=nodes.crs)
-    trips = station_data.sjoin(area_polygon)
-
-    print("Number of trips intersetcing the area", len(trips))
-
-    # get the closest nodes to the respective destination
-    trips["geom_destination"] = gpd.points_from_xy(x=trips["end_lng"], y=trips["end_lat"])
-    trips.set_geometry("geom_destination", inplace=True, crs=original_crs)
-    trips.to_crs(nodes.crs, inplace=True)
-    trips = trips.sjoin_nearest(nodes, distance_col="dist_destination", how="left", lsuffix="", rsuffix="destination")
-    trips.rename(columns={"osmid": "osmid_destination"}, inplace=True)
-
-    # set geometry to origin
-    trips["geom_origin"] = gpd.points_from_xy(x=trips["start_lng"], y=trips["start_lat"])
-    # trips["geom_origin"].apply(wkt.loads)
-    trips.set_geometry("geom_origin", inplace=True, crs=original_crs)
-    trips.to_crs(nodes.crs, inplace=True)
-    trips.drop(["geom_destination"], axis=1, inplace=True)
-
-    # get the closest nodes to the respective origin
-    trips = trips.sjoin_nearest(nodes, distance_col="dist_origin", how="left", lsuffix="", rsuffix="origin")
-    trips.rename(columns={"osmid": "osmid_origin"}, inplace=True)
-    trips_final = (
-        trips.groupby(["osmid_origin", "osmid_destination"])
-        .agg({"count": "sum"})
-        .reset_index()
-        .rename(columns={"osmid_origin": "s", "osmid_destination": "t", "count": "trips"})
-    )
-    print(len(trips_final), trips_final["trips"].sum())
-    return trips_final
-
-
-def transfer_node_attributes(G_in, G_out):
-    for n, data in G_in.nodes(data=True):
-        attr_keys = data.keys()
-        break
-    for a in attr_keys:
-        attr_dict = nx.get_node_attributes(G_in, a)
-        nx.set_node_attributes(G_out, attr_dict, name=a)
-    # transfer graph
-    for k in G_in.graph.keys():
-        G_out.graph[k] = G_in.graph[k]
-    return G_out
-
-
 def determine_valid_arcs(od_pairs, graph, number_of_paths=3):
     """Given a graph, a pair of vertices (s,t) and a specified number of paths to be specified, this returns
     the arcs that lie on one of the number_of_paths shortest s-t-paths."""
@@ -529,32 +255,6 @@ def determine_valid_arcs(od_pairs, graph, number_of_paths=3):
         arcs = determine_arcs_between_vertices(graph, vertices)
         output[od_pair] = arcs
     return output
-
-
-def determine_vertices_on_shortest_paths(od_pair, graph, number_of_paths):
-    """Auxiliary routine to extract the vertices lying on the shortest path for the given od_pair."""
-    graph_copy = graph.copy()
-    s = od_pair[0]
-    t = od_pair[1]
-    vertices_on_shortest_paths = set()
-    for _ in range(number_of_paths):
-        try:
-            path = nx.shortest_path(graph_copy, s, t, "bike_travel_time")
-        except nx.exception.NetworkXNoPath:
-            break
-        vertices_on_shortest_paths.update(path)
-        shortend_path = list(path[1:-1])
-        graph_copy.remove_nodes_from(shortend_path)
-    return vertices_on_shortest_paths
-
-
-def determine_arcs_between_vertices(graph, vertices):
-    """Auxiliary routine that returns all arcs in the graph, that have both endpoints in the specified vertex set."""
-    valid_arcs = []
-    for arc in graph.edges():
-        if arc[0] in vertices and arc[1] in vertices:
-            valid_arcs.append(arc)
-    return list(set(valid_arcs))
 
 
 def make_node_ranking(G_base: nx.DiGraph):
@@ -621,3 +321,17 @@ def valid_arcs_spatial_selection(od: pd.DataFrame, G_base: nx.DiGraph, k_closest
         # make the subgraph of all selected nodes
         valid_arcs[od_pair] = determine_arcs_between_vertices(G_base, nodes_for_subgraph)
     return valid_arcs
+
+
+def fix_edges_from_attribute(G_lane: nx.MultiDiGraph, attr_value_dict: dict) -> None:
+    """Set attributed 'fixed' to true in G_lane if and only if one of the conditions in attr_value_dict holds"""
+    fixed = {}
+    for u, v, k, data in G_lane.edges(keys=True, data=True):
+        # by default, not fixed
+        fixed[(u, v, k)] = False
+        # if any of the conditions are True, fix edge
+        for attr, attr_value in attr_value_dict.items():
+            if data[attr] in attr_value:
+                fixed[(u, v, k)] = True
+                break
+    nx.set_edge_attributes(G_lane, fixed, "fixed")

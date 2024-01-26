@@ -3,8 +3,9 @@ import numpy as np
 import argparse
 import networkx as nx
 import pandas as pd
-from ebike_city_tools.optimize.round_simple import rounding_and_splitting, output_lane_graph
-from ebike_city_tools.utils import filter_by_attribute
+from ebike_city_tools.optimize.round_simple import rounding_and_splitting
+from ebike_city_tools.utils import output_lane_graph
+from ebike_city_tools.graph_utils import filter_by_attribute
 from run_real_data import generate_motorized_lane_graph
 
 from snman import distribution, street_graph, graph_utils, io, merge_edges, lane_graph

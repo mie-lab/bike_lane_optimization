@@ -4,12 +4,12 @@ import numpy as np
 from collections import defaultdict
 
 from ebike_city_tools.utils import (
-    lossless_to_undirected,
     compute_edgedependent_bike_time,
     compute_car_time,
     compute_penalized_car_time,
     fix_multilane_bike_lanes,
 )
+from ebike_city_tools.graph_utils import lossless_to_undirected
 
 
 def extract_spanning_tree(G):
@@ -263,6 +263,7 @@ def betweenness_pareto(
     betweenness_attr="car_time",
     save_graph_path=None,
     save_graph_every_x=50,
+    return_graph_at_edges=None,
 ):
     """
     Arguments:
@@ -313,13 +314,15 @@ def betweenness_pareto(
         edges_to_fix = fix_multilane_bike_lanes(G_lane, check_for_existing=False)
         # allocate them
         for edge_to_transform in edges_to_fix:
-            # mark edge as checked
-            is_bike_or_fixed[edge_to_transform] = True
+            if is_bike_or_fixed[edge_to_transform]:
+                continue
             # check if edge can be removed, if not, add it back, mark as fixed and continue
             car_graph.remove_edge(*edge_to_transform)
             assert nx.is_strongly_connected(car_graph)
             # transform to bike lane -> update bike and car time
             new_edge = transform_car_to_bike_edge(G_lane, edge_to_transform, shared_lane_factor)
+            # mark edge as checked
+            is_bike_or_fixed[edge_to_transform] = True
             is_bike_or_fixed[new_edge] = True
             # # fix the other lane as a car edge
             # multiedge_dict = dict(G_lane[edge_to_transform[0]][edge_to_transform[1]])
@@ -365,6 +368,9 @@ def betweenness_pareto(
         # add to pareto frontier
         betweenness = add_to_pareto(len(edges_to_fix) + edges_removed, edges_removed)
 
+        if return_graph_at_edges == edges_removed:
+            return G_lane
+
         # save graph
         if save_graph_path is not None and edges_removed % save_graph_every_x == 0:
             edge_df = nx.to_pandas_edgelist(G_lane, edge_key="edge_key")[
@@ -373,6 +379,10 @@ def betweenness_pareto(
             edge_df.to_csv(save_graph_path + f"_graph_{edges_removed}.csv", index=False)
 
         print(pareto_df[-1])
+
+    # if we have not achieved the desired edge count, we still return the graph at its current state
+    if return_graph_at_edges is not None:
+        return G_lane
     return pd.DataFrame(pareto_df)
 
 

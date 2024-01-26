@@ -5,14 +5,14 @@ import numpy as np
 
 from ebike_city_tools.optimize.linear_program import define_IP
 from ebike_city_tools.optimize.round_simple import edge_to_source_target
+from ebike_city_tools.od_utils import extend_od_circular
 from ebike_city_tools.utils import (
-    lane_to_street_graph,
-    extend_od_circular,
     compute_car_time,
     compute_edgedependent_bike_time,
     output_to_dataframe,
     determine_valid_arcs,
 )
+from ebike_city_tools.graph_utils import lane_to_street_graph
 from ebike_city_tools.iterative_algorithms import transform_car_to_bike_edge
 from ebike_city_tools.metrics import compute_travel_times_in_graph
 
