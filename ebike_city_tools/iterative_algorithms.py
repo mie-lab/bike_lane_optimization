@@ -314,13 +314,15 @@ def betweenness_pareto(
         edges_to_fix = fix_multilane_bike_lanes(G_lane, check_for_existing=False)
         # allocate them
         for edge_to_transform in edges_to_fix:
-            # mark edge as checked
-            is_bike_or_fixed[edge_to_transform] = True
+            if is_bike_or_fixed[edge_to_transform]:
+                continue
             # check if edge can be removed, if not, add it back, mark as fixed and continue
             car_graph.remove_edge(*edge_to_transform)
             assert nx.is_strongly_connected(car_graph)
             # transform to bike lane -> update bike and car time
             new_edge = transform_car_to_bike_edge(G_lane, edge_to_transform, shared_lane_factor)
+            # mark edge as checked
+            is_bike_or_fixed[edge_to_transform] = True
             is_bike_or_fixed[new_edge] = True
             # # fix the other lane as a car edge
             # multiedge_dict = dict(G_lane[edge_to_transform[0]][edge_to_transform[1]])

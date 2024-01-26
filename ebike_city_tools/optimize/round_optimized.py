@@ -198,7 +198,8 @@ class ParetoRoundOptimize:
             edges_to_fix = fix_multilane_bike_lanes(self.G_lane, check_for_existing=False)
             # allocate them
             for e in edges_to_fix:
-                self.allocate_bike_edge(e, assert_greater_0=True, remove_from_car=True)
+                if not is_fixed_car[e]:
+                    self.allocate_bike_edge(e, assert_greater_0=True, remove_from_car=True)
             # add new situation to pareto frontier -> 0 actual edges added, but already x bike edges
             self.add_to_pareto(len(edges_to_fix), 0)
             print(pd.DataFrame(self.pareto_df))
