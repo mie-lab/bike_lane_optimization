@@ -128,8 +128,6 @@ if __name__ == "__main__":
     # extend OD matrix because otherwise we get disconnected car graph
     od = extend_od_circular(od, node_list)
 
-    G_street = lane_to_street_graph(G_lane)
-
     # tune the car_weight
     runtimes_pareto = []
     for car_weight in [float(args.car_weight)]:  # [0.1, 0.25, 0.5, 1, 2, 4, 8]:

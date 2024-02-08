@@ -308,6 +308,7 @@ def betweenness_pareto(
 
     # add first entry to pareto frontier with 0 edges added
     betweenness = add_to_pareto(0, 0)
+    print(pareto_df[-1])
 
     # fix edges that are multilane as one bike edge
     if fix_multilane:
