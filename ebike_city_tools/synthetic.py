@@ -16,7 +16,7 @@ def make_fake_od(n, nr_routes, nodes=None):
     selected_pair_inds = np.random.choice(np.arange(len(possible_pairs)), size=nr_routes, replace=False)
     selected_pairs = possible_pairs[selected_pair_inds]
     od = pd.DataFrame(selected_pairs, columns=["s", "t"])
-    od["trips"] = (np.random.rand(nr_routes) * 5).astype(int)
+    od["trips"] = (np.random.rand(nr_routes) * 5 + 1).astype(int)
     od = od[od["s"] != od["t"]].drop_duplicates(subset=["s", "t"])
 
     if nodes is not None:
