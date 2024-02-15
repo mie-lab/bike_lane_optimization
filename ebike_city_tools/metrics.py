@@ -148,5 +148,6 @@ def hypervolume_indicator(data, ref_point=None):
         # set new ref point
         last_ref_point = np.array([last_ref_point[0], data[i, 1]])
 
-    ref_point_volume = ref_point[0] * ref_point[1]
-    return ref_point_volume - hypervolume
+    # version 1: normalize by volume
+    # ref_point_volume = ref_point[0] * ref_point[1]
+    return hypervolume
