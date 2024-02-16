@@ -117,10 +117,33 @@ def apply_changes_to_street_graph(street_graph_init: pd.DataFrame, G_lane_modifi
                 old_other_lanes = [l for l in old_other_lanes if "P" not in l and "L" not in l]
             new_lanes_string = " | ".join(old_other_lanes + new_lanes)
             if len(new_lanes_string.split(" | ")) > len(old_other_lanes) + len(old_motorized_lanes):
-                print("PROBLEM: more new lanes than old lanes:")
-                print(u, v, "OLD:", old_other_lanes, old_motorized_lanes, "NEW:", new_lanes, "ATTR:", new_lanes_string)
+                # this problem mainly arises if there are highways in the existing lanes:
+                new_lanes_string = try_fixing_highway_problem(old_other_lanes, new_lanes)
+                # print if problem persists
+                if len(new_lanes_string.split(" | ")) > len(old_other_lanes) + len(old_motorized_lanes):
+                    print("PROBLEM: more new lanes than old lanes:")
+                    print(
+                        u, v, "OLD:", old_other_lanes, old_motorized_lanes, "NEW:", new_lanes, "ATTR:", new_lanes_string
+                    )
             street_graph_init.loc[(u, v), "ln_desc_after"] = new_lanes_string
     return street_graph_init
+
+
+def try_fixing_highway_problem(old_other_lanes, new_lanes):
+    """Small helper method to turn motorized into highways which does not work automatically"""
+    for ln in old_other_lanes:
+        if ln == "H>":
+            try:
+                new_lanes.remove("M>")
+            except:
+                pass
+        if ln == "H<":
+            try:
+                new_lanes.remove("M<")
+            except:
+                pass
+    new_lanes_string = " | ".join(old_other_lanes + new_lanes)
+    return new_lanes_string
 
 
 def optimize_region(args):
