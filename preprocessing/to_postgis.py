@@ -55,6 +55,25 @@ def join_with_geometry(edges, edges_geom):
     return edges_w_geom
 
 
+def add_single_lane_flag(inp_edges):
+    car_lanes = inp_edges[inp_edges["lanetype"].str.contains("M")]
+    bike_lanes = inp_edges[~inp_edges["lanetype"].str.contains("M")]
+    # for bike lanes, we don't need the chevrons anyways
+    bike_lanes["flag"] = 0
+
+    # add flag to car lanes
+    car_lanes.set_index(["source", "target"], inplace=True)
+    flag = []
+    for s, t in car_lanes.index:
+        if (t, s) in car_lanes.index:
+            flag.append(0)
+        else:
+            flag.append(1)
+    car_lanes["flag"] = flag
+    new_all_lanes = pd.concat([bike_lanes, car_lanes.reset_index()])
+    return new_all_lanes
+
+
 def whole_city_graph_to_postgis(
     path_input="../street_network_data/zurich/street_graph_nodes.gpkg",
     path_output="outputs/rebuild_zurich/optimization_10_zurich/rebuild_whole_graph.gpkg",
@@ -116,7 +135,7 @@ con_mie = create_engine("postgresql+psycopg2://", creator=get_con_mie)
 
 def write_all_graphs_to_postgis():
     IN_PATH_DATA = "../street_network_data/"
-    IN_PATH_OUTPUTS = "outputs/cluster_graphs"
+    IN_PATH_OUTPUTS = "outputs/cluster_mylanegraph_final/cluster_final_optimized"
     for instance in os.listdir(IN_PATH_OUTPUTS):
         if instance[0] == ".":
             continue
@@ -145,10 +164,18 @@ def write_all_graphs_to_postgis():
                 algorithm = f"carweight{car_weight}"
             except ValueError:
                 car_weight = "1"
-                algorithm = "betweenness"
+                if "cartime" in f:
+                    algorithm = "carbetweenness"
+                else:
+                    algorithm = "betweenness"
 
             # RESTRICT HERE
-            if edges_allocated % 100 != 0 or "topdown" in f or "cartime" in f or car_weight not in ["1", "4"]:
+            if (
+                edges_allocated not in [100, 200]
+                or "topdown" in f
+                # or "cartime" in f
+                or car_weight not in ["1", "4", "8"]
+            ):
                 continue
             # print("processing", instance, f)
 
@@ -160,7 +187,9 @@ def write_all_graphs_to_postgis():
             # reduce to the necessary attributes
             save_graph = edges_w_geom[include_attributes]
             save_graph = save_graph[save_graph.geometry.is_valid]
-            save_graph["lanetype"] = save_graph["lanetype"].map({"P": "P", "M>": "M", "M": "M"})
+            save_graph["lanetype"] = save_graph["lanetype"].map({"P": "P", "M>": "M", "M": "M", "H": "M"})
+            # filter out bike-reverse lanes since we only want to plot it once
+            save_graph = save_graph[~save_graph["edge_key"].str.contains("revbike")]
 
             # aggregate by lane and count number of occurences
             group_attrs = ["source", "target", "lanetype"]
@@ -171,10 +200,13 @@ def write_all_graphs_to_postgis():
             )
             save_graph = gpd.GeoDataFrame(save_graph, geometry="geometry", crs=edge_geometries.crs)
 
+            # add flag regarding double lanes
+            save_graph = add_single_lane_flag(save_graph)
+
             out_name = f"edges_{algorithm}_bikelanes{edges_allocated}"
             save_graph.to_postgis(f"{instance}_{out_name}", con_mie, schema="graphs", if_exists="replace", index=False)
             print("Written graph to database", f"{instance}_{out_name}")
 
 
 if __name__ == "__main__":
-    whole_city_graph_to_postgis()
+    write_all_graphs_to_postgis()

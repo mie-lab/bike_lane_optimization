@@ -67,6 +67,8 @@ def street_to_lane_graph(
     fixed_lanetypes=["H>", "<H"],
     target_crs=2056,
 ):
+    if "osmid" in street_graph_nodes.columns:
+        street_graph_nodes.set_index("osmid", inplace=True)
     # create node attributes
     if "elevation" in street_graph_nodes.columns:
         elevation = street_graph_nodes["elevation"].to_dict()
