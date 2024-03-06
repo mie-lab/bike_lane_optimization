@@ -1,25 +1,19 @@
 import os
 import numpy as np
 import pandas as pd
-import seaborn as sns
-import matplotlib.pyplot as plt
-import matplotlib
 import geopandas as gpd
 import time
 from shapely import wkt
 import datetime
 import networkx as nx
 from shapely.geometry import Point
-
-font = {"family": "Sans", "size": 15}
-matplotlib.rc("font", **font)
-
-from sqlalchemy import create_engine
-import json
-import psycopg2
 import geopandas as gpd
 import shapely.ops
+
 from ebike_city_tools.graph_utils import street_to_lane_graph
+from ebike_city_tools.app_utils import get_database_connector
+
+DATABASE_CONNECTOR = get_database_connector()
 
 
 def join_with_geometry(edges, edges_geom):
@@ -106,17 +100,10 @@ def whole_city_graph_to_postgis(
 
     print(save_graph)
     # to postgis
-    lane_with_geometry.to_postgis("zurich_rebuild", con_mie, schema="graphs", if_exists="replace", index=False)
+    lane_with_geometry.to_postgis(
+        "zurich_rebuild", DATABASE_CONNECTOR, schema="graphs", if_exists="replace", index=False
+    )
     print("Written lane graph to postgis", len(lane_with_geometry))
-
-
-with open("../../dblogin_mielab.json", "r") as infile:
-    db_credentials_mie = json.load(infile)
-    db_credentials_mie["database"] = "ebikecity"
-
-
-def get_con_mie():
-    return psycopg2.connect(**db_credentials_mie)
 
 
 include_attributes = [
@@ -130,7 +117,6 @@ include_attributes = [
     "speed_limit",
     "geometry",
 ]
-con_mie = create_engine("postgresql+psycopg2://", creator=get_con_mie)
 
 
 def write_all_graphs_to_postgis():
@@ -144,7 +130,9 @@ def write_all_graphs_to_postgis():
         save_nodes = nodes.rename({"osmid": "node"}, axis=1).drop(
             ["traffic_signals", "osmid_original", "highway"], axis=1
         )
-        save_nodes.to_postgis(f"{instance}_nodes", con_mie, schema="graphs", if_exists="replace", index=False)
+        save_nodes.to_postgis(
+            f"{instance}_nodes", DATABASE_CONNECTOR, schema="graphs", if_exists="replace", index=False
+        )
 
         # load edge geometries (same as lane_geometries.gpkg)
         inst_short = instance[:-2] if "_1" in instance or "_2" in instance else instance
@@ -204,7 +192,9 @@ def write_all_graphs_to_postgis():
             save_graph = add_single_lane_flag(save_graph)
 
             out_name = f"edges_{algorithm}_bikelanes{edges_allocated}"
-            save_graph.to_postgis(f"{instance}_{out_name}", con_mie, schema="graphs", if_exists="replace", index=False)
+            save_graph.to_postgis(
+                f"{instance}_{out_name}", DATABASE_CONNECTOR, schema="graphs", if_exists="replace", index=False
+            )
             print("Written graph to database", f"{instance}_{out_name}")
 
 

@@ -70,15 +70,15 @@ if __name__ == "__main__":
     os.makedirs(out_path, exist_ok=True)
 
     np.random.seed(42)  # random seed for extending the od matrix
-    # # V1: generate lane graph with my code
-    # G_lane = load_lane_graph(path)
-    # print("Loaded lane graph:", G_lane.number_of_nodes(), G_lane.number_of_edges())
-    # G_lane = keep_only_the_largest_connected_component(G_lane)
-    # print("Size after reducing to connected comp:", G_lane.number_of_nodes(), G_lane.number_of_edges())
-    # V2: SNMan lane graph
-    G_lane = generate_motorized_lane_graph(
-        os.path.join(path, "edges_all_attributes.gpkg"), os.path.join(path, "nodes_all_attributes.gpkg")
-    )
+    # V1: generate lane graph with my code
+    G_lane = load_lane_graph(path)
+    print("Loaded lane graph:", G_lane.number_of_nodes(), G_lane.number_of_edges())
+    G_lane = keep_only_the_largest_connected_component(G_lane)
+    print("Size after reducing to connected comp:", G_lane.number_of_nodes(), G_lane.number_of_edges())
+    # # V2: SNMan lane graph
+    # G_lane = generate_motorized_lane_graph(
+    #     os.path.join(path, "edges_all_attributes.gpkg"), os.path.join(path, "nodes_all_attributes.gpkg")
+    # )
 
     # save lane graph
     # import pickle

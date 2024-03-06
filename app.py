@@ -1,6 +1,4 @@
 import os
-import json
-import numpy as np
 import geopandas as gpd
 import networkx as nx
 import pandas as pd
@@ -20,7 +18,7 @@ from ebike_city_tools.od_utils import extend_od_circular
 from ebike_city_tools.optimize.round_optimized import ParetoRoundOptimize
 from ebike_city_tools.app_utils import (
     PATH_DATA,
-    DATABASE_CONNECTOR,
+    get_database_connector,
     SCHEMA,
     generate_od_nodes,
     generate_od_geometry,
@@ -28,7 +26,10 @@ from ebike_city_tools.app_utils import (
     compute_nr_variables,
 )
 
+# Set to True if you want to use the Database - otherwise, everything will just be saved in a dictionary
 DATABASE = True
+if DATABASE:
+    DATABASE_CONNECTOR = get_database_connector()
 
 
 # constant definitions (not designed as request arguments)
@@ -111,7 +112,7 @@ def generate_input_graph():
         return (jsonify("Wrong value for odmode argument. Must be one of {slow, fast}"), 400)
 
     # create graph
-    G_lane = street_to_lane_graph(
+    lane_graph = street_to_lane_graph(
         zurich_nodes_area,
         zurich_edges_area,
         maxspeed_fill_val=maxspeed_fill_val,
@@ -120,16 +121,16 @@ def generate_input_graph():
         target_crs=CRS,
     )
     # reduce to largest connected component
-    G_lane = keep_only_the_largest_connected_component(G_lane)
+    lane_graph = keep_only_the_largest_connected_component(lane_graph)
 
     # we need to extend the OD matrix to guarantee connectivity of the car network
     od = od[od["s"] != od["t"]]
-    node_list = list(G_lane.nodes())
+    node_list = list(lane_graph.nodes())
     od = od[(od["s"].isin(node_list)) & (od["t"].isin(node_list))]
     od_matrix_area_extended = extend_od_circular(od, node_list)
 
     # estimate runtime
-    nr_variables = compute_nr_variables(G_lane.number_of_edges(), len(od_matrix_area_extended))
+    nr_variables = compute_nr_variables(lane_graph.number_of_edges(), len(od_matrix_area_extended))
     runtime_min = get_expected_time(nr_variables)
 
     # save nodes for the geometry
@@ -141,7 +142,7 @@ def generate_input_graph():
             f"{project_id}_nodes", DATABASE_CONNECTOR, schema=SCHEMA, if_exists="replace", index=False
         )
         # save edges for constructing the graph later
-        save_edges = nx.to_pandas_edgelist(G_lane, edge_key="edge_key")[
+        save_edges = nx.to_pandas_edgelist(lane_graph, edge_key="edge_key")[
             ["source", "target", "edge_key", "fixed", "lanetype", "distance", "gradient", "speed_limit"]
         ]
         save_edges.to_sql(f"{project_id}_edges", DATABASE_CONNECTOR, schema=SCHEMA, if_exists="replace", index=False)
@@ -153,7 +154,7 @@ def generate_input_graph():
         # for debugging without using a database: save simpy in a dictionary
         if project_id is None:
             project_id = create_new_project_id()
-        project_dict[project_id] = {"lane_graph": G_lane, "od": od, "bounds": area_polygon}
+        project_dict[project_id] = {"lane_graph": lane_graph, "od": od, "bounds": area_polygon}
 
     return (jsonify({"project_name": project_id, "variables": nr_variables, "expected_runtime": runtime_min}), 200)
 
@@ -191,23 +192,23 @@ def optimize():
                 jsonify("Problem loading project from database. To start a new project, call `construct_graph` first"),
                 400,
             )
-        G_lane = nx.from_pandas_edgelist(
+        lane_graph = nx.from_pandas_edgelist(
             edges,
             edge_key="edge_key",
             edge_attr=[col for col in edges.columns if col not in ["source", "target", "edge_key"]],
             create_using=nx.MultiDiGraph,
         )
-        print(G_lane.number_of_edges())
+        print(lane_graph.number_of_edges())
     else:
         if project_id not in project_dict.keys():
             return (jsonify("Project not found. Call `construct_graph` first to start a new project"), 400)
 
-        G_lane = project_dict[project_id]["lane_graph"]
+        lane_graph = project_dict[project_id]["lane_graph"]
         od = project_dict[project_id]["od"]
 
     # compute the absolute number of bike lanes that are desired
-    desired_edge_count = int(ratio_bike_edges * G_lane.number_of_edges())
-    print("Desired edges", desired_edge_count, G_lane.number_of_edges(), len(od))
+    desired_edge_count = int(ratio_bike_edges * lane_graph.number_of_edges())
+    print("Desired edges", desired_edge_count, lane_graph.number_of_edges(), len(od))
 
     if "betweenness" in algorithm:
 
@@ -217,7 +218,7 @@ def optimize():
 
         # run betweenness centrality algorithm for comparison
         result_graph = algorithm_func(
-            G_lane.copy(),
+            lane_graph.copy(),
             sp_method=SP_METHOD,
             od_matrix=od,
             weight_od_flow=WEIGHT_OD_FLOW,
@@ -232,7 +233,7 @@ def optimize():
         # od = extend_od_circular(od, node_list)
 
         opt = ParetoRoundOptimize(
-            G_lane.copy(),
+            lane_graph.copy(),
             od.copy(),
             optimize_every_x=optimize_every_x,
             car_weight=car_weight,

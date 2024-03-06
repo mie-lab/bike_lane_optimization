@@ -7,7 +7,10 @@ import geopandas as gpd
 from sqlalchemy import create_engine
 import psycopg2
 
+# configuratio & pathas
 PATH_DATA = "../street_network_data/zurich/"
+DB_LOGIN_PATH = "../../dblogin_mielab.json"
+SCHEMA = "webapp"
 CRS = 2056
 
 # load the whole-city trip and construct origin and destination geometry
@@ -22,19 +25,18 @@ trips_microcensus["geom_origin"] = gpd.points_from_xy(
 # load prebuilt OD matrix
 od_whole_zurich_nodes = pd.read_csv(os.path.join(PATH_DATA, "od_matrix.csv"))
 
+
 # Setup database access
-DB_LOGIN_PATH = "../../dblogin_mielab.json"
-with open(DB_LOGIN_PATH, "r") as infile:
-    db_login = json.load(infile)
-    db_login["database"] = "ebikecity"
+def get_database_connector(dblogin_file=DB_LOGIN_PATH):
+    """Create database connection with login json file"""
+    with open(dblogin_file, "r") as infile:
+        db_login = json.load(infile)
+        db_login["database"] = "ebikecity"
 
+    def get_con_mie():
+        return psycopg2.connect(**db_login)
 
-def get_con_mie():
-    return psycopg2.connect(**db_login)
-
-
-DATABASE_CONNECTOR = create_engine("postgresql+psycopg2://", creator=get_con_mie)
-SCHEMA = "webapp"
+    return create_engine("postgresql+psycopg2://", creator=get_con_mie)
 
 
 def get_expected_time_linear(nr_variables, coef=2.17235844e-05, intercept=-15.15954725242839):
