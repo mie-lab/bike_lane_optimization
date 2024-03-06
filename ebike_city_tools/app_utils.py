@@ -1,7 +1,11 @@
 import os
+import json
 import numpy as np
 import pandas as pd
 import geopandas as gpd
+
+from sqlalchemy import create_engine
+import psycopg2
 
 PATH_DATA = "../street_network_data/zurich/"
 CRS = 2056
@@ -16,7 +20,21 @@ trips_microcensus["geom_origin"] = gpd.points_from_xy(
 )
 
 # load prebuilt OD matrix
-od_whole_zurich_nodes = pd.read_csv("../street_network_data/zurich")
+od_whole_zurich_nodes = pd.read_csv(os.path.join(PATH_DATA, "od_matrix.csv"))
+
+# Setup database access
+DB_LOGIN_PATH = "../../dblogin_mielab.json"
+with open(DB_LOGIN_PATH, "r") as infile:
+    db_login = json.load(infile)
+    db_login["database"] = "ebikecity"
+
+
+def get_con_mie():
+    return psycopg2.connect(**db_login)
+
+
+DATABASE_CONNECTOR = create_engine("postgresql+psycopg2://", creator=get_con_mie)
+SCHEMA = "webapp"
 
 
 def get_expected_time_linear(nr_variables, coef=2.17235844e-05, intercept=-15.15954725242839):
