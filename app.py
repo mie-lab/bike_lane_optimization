@@ -22,7 +22,9 @@ from ebike_city_tools.app_utils import (
     generate_od_geometry,
     get_expected_time,
     compute_nr_variables,
+    recreate_lane_graph,
 )
+from ebike_city_tools.metrics import compute_travel_times_in_graph
 
 # Set to True if you want to use the Database - otherwise, everything will just be saved in a dictionary
 DATABASE = True
@@ -285,6 +287,26 @@ def optimize():
         ),
         200,
     )
+
+
+@app.route("/eval_travel_time", methods=["GET"])
+def evaluate_travel_time():
+    """Load the output of one run and compute the travel times
+    Only works with DATABASE = True
+    """
+    assert DATABASE
+    project_id = request.args.get("project_name")
+    run_id = request.args.get("run_name")
+
+    project_edges = pd.read_sql(f"SELECT * FROM {SCHEMA}.{project_id}_edges", DATABASE_CONNECTOR)
+    project_od = pd.read_sql(f"SELECT * FROM {SCHEMA}.{project_id}_od", DATABASE_CONNECTOR)
+    run_output = pd.read_sql(f"SELECT * FROM {SCHEMA}.{project_id}_run{run_id}", DATABASE_CONNECTOR)
+
+    lane_graph = recreate_lane_graph(project_edges, run_output)
+
+    # measure travel times
+    bike_travel_time, car_travel_time = compute_travel_times_in_graph(lane_graph, project_od, SP_METHOD, WEIGHT_OD_FLOW)
+    return (jsonify({"bike_travel_time": bike_travel_time, "car_travel_time": car_travel_time}), 200)
 
 
 if __name__ == "__main__":
