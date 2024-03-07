@@ -13,7 +13,7 @@ CRS = 2056
 
 
 # Setup database access
-def get_database_connector(dblogin_file):
+def get_database_connector(dblogin_file: str):
     """Create database connection with login json file"""
     with open(dblogin_file, "r") as infile:
         db_login = json.load(infile)
@@ -25,23 +25,27 @@ def get_database_connector(dblogin_file):
     return create_engine("postgresql+psycopg2://", creator=get_con_mie)
 
 
-def get_expected_time_linear(nr_variables, coef=2.17235844e-05, intercept=-15.15954725242839):
+def get_expected_time_linear(nr_variables: int, coef=2.17235844e-05, intercept=-15.15954725242839):
     """Fit linear function to runtime from number of variables"""
     return nr_variables * coef + intercept
 
 
-def get_expected_time(nr_variables):
+def get_expected_time(nr_variables: int):
     """Computes expected runtime (in min) from number of variables"""
     return 0.8 * np.exp(nr_variables / 1000000 * 1.6)
 
 
-def compute_nr_variables(nr_edges, od_len):
+def compute_nr_variables(nr_edges: int, od_len: int):
     """Compute number of variables"""
     nr_variables = 3 * (od_len * nr_edges) + 2 * nr_edges
     return nr_variables
 
 
-def generate_od_nodes(od_whole_zurich_nodes, nodes):
+def generate_od_nodes(od_whole_zurich_nodes: pd.DataFrame, nodes: gpd.GeoDataFrame):
+    """
+    Fast method for generating the OD matrix for a specific area: Take the OD matrix for the whole city and only use
+    the node-pairs of nodes that appear in the nodes-dataframe
+    """
     assert nodes.index.name == "osmid"
     nodes_in_area = nodes.index.unique()
     od_in_area = od_whole_zurich_nodes[
@@ -50,7 +54,11 @@ def generate_od_nodes(od_whole_zurich_nodes, nodes):
     return od_in_area
 
 
-def generate_od_geometry(area_polygon, trips_microcensus, nodes):
+def generate_od_geometry(area_polygon: gpd.GeoDataFrame, trips_microcensus: gpd.GeoDataFrame, nodes: gpd.GeoDataFrame):
+    """
+    Slow method for generating the OD matrix for a specific area: Take the Mobility Microncensus data, and match it
+    to the nodes in this area.
+    """
     # restrict trips to the ones crossing the area
     trips = trips_microcensus.sjoin(area_polygon)
 
@@ -77,7 +85,7 @@ def generate_od_geometry(area_polygon, trips_microcensus, nodes):
     return od_in_area
 
 
-def recreate_lane_graph(project_edges, run_output):
+def recreate_lane_graph(project_edges: pd.DataFrame, run_output: pd.DataFrame):
     """Auxiliary method to create the graph from the project edges and the output of one run"""
     # set index
     if "source" in project_edges:
