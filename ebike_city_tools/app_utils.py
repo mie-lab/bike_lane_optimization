@@ -7,27 +7,11 @@ import geopandas as gpd
 from sqlalchemy import create_engine
 import psycopg2
 
-# configuratio & pathas
-PATH_DATA = "../street_network_data/zurich/"
-DB_LOGIN_PATH = "../../dblogin_mielab.json"
-SCHEMA = "webapp"
 CRS = 2056
-
-# load the whole-city trip and construct origin and destination geometry
-trips_microcensus = gpd.read_file(os.path.join(PATH_DATA, "raw_od_matrix", "trips_mc_cleaned_proj.gpkg"))
-trips_microcensus["geom_destination"] = gpd.points_from_xy(
-    x=trips_microcensus["end_lng"], y=trips_microcensus["end_lat"]
-)
-trips_microcensus["geom_origin"] = gpd.points_from_xy(
-    x=trips_microcensus["start_lng"], y=trips_microcensus["start_lat"]
-)
-
-# load prebuilt OD matrix
-od_whole_zurich_nodes = pd.read_csv(os.path.join(PATH_DATA, "od_matrix.csv"))
 
 
 # Setup database access
-def get_database_connector(dblogin_file=DB_LOGIN_PATH):
+def get_database_connector(dblogin_file):
     """Create database connection with login json file"""
     with open(dblogin_file, "r") as infile:
         db_login = json.load(infile)
@@ -55,7 +39,7 @@ def compute_nr_variables(nr_edges, od_len):
     return nr_variables
 
 
-def generate_od_nodes(nodes):
+def generate_od_nodes(od_whole_zurich_nodes, nodes):
     assert nodes.index.name == "osmid"
     nodes_in_area = nodes.index.unique()
     od_in_area = od_whole_zurich_nodes[
@@ -64,7 +48,7 @@ def generate_od_nodes(nodes):
     return od_in_area
 
 
-def generate_od_geometry(area_polygon, nodes):
+def generate_od_geometry(area_polygon, trips_microcensus, nodes):
     # restrict trips to the ones crossing the area
     trips = trips_microcensus.sjoin(area_polygon)
 

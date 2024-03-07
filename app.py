@@ -17,9 +17,7 @@ from ebike_city_tools.iterative_algorithms import topdown_betweenness_pareto, be
 from ebike_city_tools.od_utils import extend_od_circular
 from ebike_city_tools.optimize.round_optimized import ParetoRoundOptimize
 from ebike_city_tools.app_utils import (
-    PATH_DATA,
     get_database_connector,
-    SCHEMA,
     generate_od_nodes,
     generate_od_geometry,
     get_expected_time,
@@ -28,14 +26,16 @@ from ebike_city_tools.app_utils import (
 
 # Set to True if you want to use the Database - otherwise, everything will just be saved in a dictionary
 DATABASE = True
-if DATABASE:
-    DATABASE_CONNECTOR = get_database_connector()
-
+DB_LOGIN_PATH = "dblogin_ikgpgis.json"
+SCHEMA = "webapp"
+# path to load data from IF database=False:
+PATH_DATA = "../street_network_data/zurich/"
 
 # constant definitions (not designed as request arguments)
 ROUNDING_METHOD = "round_bike_optimize"
 IGNORE_FIXED = True
 FIX_MULTILANE = False
+CRS = 2056
 FLOW_CONSTANT = 1  # how much flow to send through a path
 SP_METHOD = "od"
 WEIGHT_OD_FLOW = False
@@ -48,28 +48,46 @@ algorithm_dict = {
     "betweenness_biketime": (betweenness_pareto, {"betweenness_attr": "bike_time"}),
 }
 
-
 app = Flask(__name__)
 CORS(app, origins=["*", "null"])  # allowing any origin as well as localhost (null)
 
 # load main nodes and edges that will be used for any graph
-CRS = 2056
-zurich_nodes = gpd.read_file(os.path.join(PATH_DATA, "street_graph_nodes.gpkg")).to_crs(CRS).set_index("osmid")
-zurich_edges = gpd.read_file(os.path.join(PATH_DATA, "street_graph_edges.gpkg")).to_crs(CRS)
-# some preprocessing
-zurich_edges = clean_street_graph_multiedges(zurich_edges)
-zurich_edges = clean_street_graph_directions(zurich_edges)
+if DATABASE:
+    DATABASE_CONNECTOR = get_database_connector(DB_LOGIN_PATH)
+    zurich_edges = gpd.read_postgis("SELECT * FROM zurich.edges", DATABASE_CONNECTOR, geom_col="geometry").set_index(
+        ["u", "v"]
+    )
+    zurich_nodes = gpd.read_postgis(
+        "SELECT * FROM zurich.nodes", DATABASE_CONNECTOR, geom_col="geometry", index_col="osmid"
+    )
+    print("Loaded nodes and edges for Zurich from server", len(zurich_nodes), len(zurich_edges))
+    trips_microcensus = gpd.read_postgis(
+        "SELECT * FROM zurich.trips_microcensus", DATABASE_CONNECTOR, geom_col="geometry"
+    )
+    od_zurich = pd.read_sql("SELECT * FROM zurich.od_matrix", DATABASE_CONNECTOR)
+    print("Loaded OD matrix for Zurich", len(od_zurich))
+else:
+    zurich_nodes = gpd.read_file(os.path.join(PATH_DATA, "street_graph_nodes.gpkg")).to_crs(CRS).set_index("osmid")
+    zurich_edges = gpd.read_file(os.path.join(PATH_DATA, "street_graph_edges.gpkg")).to_crs(CRS)
+    # some preprocessing
+    zurich_edges = clean_street_graph_multiedges(zurich_edges)
+    zurich_edges = clean_street_graph_directions(zurich_edges)
 
-# Dictionary storing the graphs and OD matrices per project. TODO: replace with database
-project_dict = {}
+    # Load OD matrix
+    # load the whole-city trip and construct origin and destination geometry
+    trips_microcensus = gpd.read_file(os.path.join(PATH_DATA, "raw_od_matrix", "trips_mc_cleaned_proj.gpkg"))
+    trips_microcensus["geom_destination"] = gpd.points_from_xy(
+        x=trips_microcensus["end_lng"], y=trips_microcensus["end_lat"]
+    )
+    trips_microcensus["geom_origin"] = gpd.points_from_xy(
+        x=trips_microcensus["start_lng"], y=trips_microcensus["start_lat"]
+    )
 
+    # load prebuilt OD matrix
+    od_zurich = pd.read_csv(os.path.join(PATH_DATA, "od_matrix.csv"))
 
-def create_new_project_id():
-    key_list = project_dict.keys()
-    if len(key_list) == 0:
-        return 0
-    else:
-        return max(key_list) + 1
+    # Dictionary storing the graphs and OD matrices per project. TODO: replace with database
+    project_dict = {}
 
 
 @app.route("/construct_graph", methods=["POST"])
@@ -105,9 +123,9 @@ def generate_input_graph():
 
     # create OD matrix
     if od_creation_mode == "fast":
-        od = generate_od_nodes(zurich_nodes_area)
+        od = generate_od_nodes(od_zurich, zurich_nodes_area)
     elif od_creation_mode == "slow":
-        od = generate_od_geometry(area_polygon, zurich_nodes_area)
+        od = generate_od_geometry(area_polygon, trips_microcensus, zurich_nodes_area)
     else:
         return (jsonify("Wrong value for odmode argument. Must be one of {slow, fast}"), 400)
 
@@ -153,7 +171,8 @@ def generate_input_graph():
     else:
         # for debugging without using a database: save simpy in a dictionary
         if project_id is None:
-            project_id = create_new_project_id()
+            key_list = project_dict.keys()
+            project_id = 0 if len(key_list) == 0 else max(key_list) + 1
         project_dict[project_id] = {"lane_graph": lane_graph, "od": od, "bounds": area_polygon}
 
     return (jsonify({"project_name": project_id, "variables": nr_variables, "expected_runtime": runtime_min}), 200)

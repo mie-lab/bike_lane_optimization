@@ -6,6 +6,7 @@ outputs_prev/
 figures/
 backup_scripts/
 scripts/compare_algorithms.py
+dblogin*
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
