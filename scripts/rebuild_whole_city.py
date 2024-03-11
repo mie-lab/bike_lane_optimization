@@ -160,7 +160,7 @@ def optimize_region(args):
         # optimize region
         optimized_G_lane = lane_optimization(G_lane_region, od_df, optimize_params=params, edge_fraction=EDGE_FRACTION)
     elif ALGORITHM == "betweenness":
-        optimized_G_lane = betweenness_pareto(
+        optimized_G_lane, _ = betweenness_pareto(
             G_lane_region, od_df, sp_method="od", return_graph_at_edges=int(0.4 * G_lane_region.number_of_edges())
         )
     else:

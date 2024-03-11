@@ -169,7 +169,8 @@ class ParetoRoundOptimize:
     def allocate_x_bike_lanes(self, fraction_bike_lanes, fix_multilane=True):
         """Run rounding until we have allocation <fraction_bike_lanes>% of the edges as bike lanes, return graph"""
         desired_num_bike_edges = int(self.G_lane.number_of_edges() * fraction_bike_lanes)
-        return self.pareto(return_graph_at_edges=desired_num_bike_edges, fix_multilane=fix_multilane)
+        optimized_graph, _ = self.pareto(return_graph_at_edges=desired_num_bike_edges, fix_multilane=fix_multilane)
+        return optimized_graph
 
     def pareto(
         self, save_graph_path=None, fix_multilane=True, return_list=False, return_graph_at_edges=None
@@ -267,11 +268,11 @@ class ParetoRoundOptimize:
 
             # return graph if at this number of edges
             if return_graph_at_edges is not None and edges_removed == return_graph_at_edges:
-                return self.modified_G_lane
+                return self.modified_G_lane, pd.DataFrame(self.pareto_df)
 
         # if we have reached the end but not the number of edges we wanted to allocate, return graph
         if return_graph_at_edges is not None:
-            return self.modified_G_lane
+            return self.modified_G_lane, pd.DataFrame(self.pareto_df)
         if return_list:
             return self.pareto_df
         return pd.DataFrame(self.pareto_df)

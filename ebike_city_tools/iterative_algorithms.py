@@ -370,7 +370,7 @@ def betweenness_pareto(
         betweenness = add_to_pareto(len(edges_to_fix) + edges_removed, edges_removed)
 
         if return_graph_at_edges == edges_removed:
-            return G_lane
+            return G_lane, pd.DataFrame(pareto_df)
 
         # save graph
         if save_graph_path is not None and edges_removed % save_graph_every_x == 0:
@@ -383,7 +383,7 @@ def betweenness_pareto(
 
     # if we have not achieved the desired edge count, we still return the graph at its current state
     if return_graph_at_edges is not None:
-        return G_lane
+        return G_lane, pd.DataFrame(pareto_df)
     return pd.DataFrame(pareto_df)
 
 

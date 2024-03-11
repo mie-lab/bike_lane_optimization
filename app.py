@@ -155,6 +155,9 @@ def generate_input_graph():
 
     # save nodes for the geometry
     if DATABASE:
+        area_polygon.to_postgis(
+            f"{project_id}_bounds", DATABASE_CONNECTOR, schema=SCHEMA, if_exists="replace", index=False
+        )
         save_nodes = zurich_nodes_area.reset_index().rename({"osmid": "node"}, axis=1)[
             ["node", "geometry"]
         ]  # only save geometry and id
@@ -238,7 +241,7 @@ def optimize():
         algorithm_func, kwargs = algorithm_dict[algorithm]
 
         # run betweenness centrality algorithm for comparison
-        result_graph = algorithm_func(
+        result_graph, pareto_df = algorithm_func(
             lane_graph.copy(),
             sp_method=SP_METHOD,
             od_matrix=od,
@@ -264,7 +267,7 @@ def optimize():
             valid_edges_k=0,
         )
         # RUN pareto optimization, potentially with saving the graph after each optimization step
-        result_graph = opt.pareto(fix_multilane=FIX_MULTILANE, return_graph_at_edges=desired_edge_count)
+        result_graph, pareto_df = opt.pareto(fix_multilane=FIX_MULTILANE, return_graph_at_edges=desired_edge_count)
 
     # convert to pandas datafrme
     result_graph_edges = nx.to_pandas_edgelist(result_graph, edge_key="edge_key")[
@@ -273,6 +276,9 @@ def optimize():
     if DATABASE:
         result_graph_edges.to_sql(
             f"{project_id}_run{run_id}", DATABASE_CONNECTOR, schema=SCHEMA, if_exists="replace", index=False
+        )
+        pareto_df.to_sql(
+            f"{project_id}_run{run_id}_pareto", DATABASE_CONNECTOR, schema=SCHEMA, if_exists="replace", index=False
         )
     else:
         project_dict[project_id][f"run{run_id}"] = result_graph_edges
