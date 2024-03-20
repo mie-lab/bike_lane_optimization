@@ -1,11 +1,13 @@
 import os
 import geopandas as gpd
+import sqlalchemy
 import networkx as nx
 import pandas as pd
 from flask import Flask, jsonify, request
 from flask_cors import CORS, cross_origin  # needs to be installed via pip install flask-cors
 
 from sqlalchemy.orm import sessionmaker
+
 
 from ebike_city_tools.graph_utils import (
     street_to_lane_graph,
@@ -110,7 +112,10 @@ def generate_input_graph():
     # get input arguments: polygons for bounding the region and OD mode
     bounds_polygon = request.get_json(force=True)
     od_creation_mode = request.args.get("odmode", "fast")
-    project_id = request.args.get("project_id", None)
+    #project_id = request.args.get("project_id", None)
+    project_name = request.args.get("project_name", None)
+    
+    
 
     try:
         area_polygon = Polygon(bounds_polygon)
@@ -124,6 +129,26 @@ def generate_input_graph():
     # if the graph is empty, return message
     if len(zurich_edges_area) == 0:
         return (jsonify("No edges found in this area. Try with other coordinates."), 400)
+
+    # Create a new project
+    session = None
+    try:
+        Session = sessionmaker(bind=DATABASE_CONNECTOR)
+        session = Session()
+        cursor = session.connection().connection.cursor()
+        cursor.execute(
+            f"INSERT INTO webapp.projects (prj_name) VALUES ('{project_name}') RETURNING id"
+        )
+        project_id = cursor.fetchone()[0]
+        session.commit()
+    except Exception as e:
+        if session:
+            session.rollback()
+        return jsonify({"error": str(e)}), 500
+    finally:
+        if session:
+            session.close()
+
 
     # create OD matrix
     if od_creation_mode == "fast":
@@ -213,7 +238,7 @@ def optimize():
     curl -X GET "http://localhost:8989/optimize?project_id=test&algorithm=betweenness_biketime&run_name=1&bike_ratio=0.1"
     """
     project_id = request.args.get("project_id")
-    run_id = request.args.get("run_id")
+    #run_id = request.args.get("run_id")
     algorithm = request.args.get("algorithm", "optimize")
     ratio_bike_edges = float(request.args.get("bike_ratio", "0.4"))
     optimize_every_x = float(request.args.get("optimize_frequency", "30"))
@@ -230,6 +255,13 @@ def optimize():
             od.rename(columns={'source': 's', 'target': 't'}, inplace=True)
             od = od[["s", "t", "trips"]]
             
+            # Fetch run_id from the database after insertion
+            run_id = pd.read_sql(f"SELECT MAX(id_run) FROM {SCHEMA}.runs WHERE id_prj = {project_id}", DATABASE_CONNECTOR)
+            print("run Id: --> ", run_id.iloc[0][0])
+            if run_id.empty or run_id.iloc[0][0] is None:
+                run_id = 1
+            else:
+                run_id = int(run_id.iloc[0][0]) + 1
 
             
         except:
@@ -243,7 +275,14 @@ def optimize():
             edge_attr=[col for col in edges.columns if col not in ["source", "target", "edge_key"]],
             create_using=nx.MultiDiGraph,
         )
-        run_list = pd.DataFrame({"id_prj": [project_id]})
+        run_list = pd.DataFrame({
+            "id_prj": [project_id],
+            "algorithm": [algorithm],
+            "bike_ratio": [ratio_bike_edges],
+            "optimize_frequency": [optimize_every_x],
+            "car_weight": [car_weight],
+            "bike_safety_penalty": [shared_lane_factor]
+        })
     else:
         if project_id not in project_dict.keys():
             return (jsonify("Project not found. Call `construct_graph` first to start a new project"), 400)
@@ -296,7 +335,9 @@ def optimize():
     ]
     
     result_graph_edges['id_run'] = run_id
+    result_graph_edges['id_prj'] = project_id
     pareto_df['id_run'] = run_id
+    pareto_df['id_prj'] = project_id   
     if DATABASE:
         run_list.to_sql(
             f"runs", DATABASE_CONNECTOR, schema=SCHEMA, if_exists="append", index=False
@@ -308,6 +349,46 @@ def optimize():
         pareto_df.to_sql(
             f"pareto", DATABASE_CONNECTOR, schema=SCHEMA, if_exists="append", index=False
         )
+        session = None
+        try:
+            
+            
+            Session = sessionmaker(bind=DATABASE_CONNECTOR)
+            session = Session()
+            cursor = session.connection().connection.cursor()
+            cursor.execute(
+                f"""DROP VIEW IF EXISTS webapp.v_optimized;
+                CREATE OR REPLACE VIEW webapp.v_optimized
+                AS
+                SELECT
+                    ROW_NUMBER() OVER () AS edge_id,
+                    r.id_prj,
+                    run_opt.id_run,
+                    run_opt.source,
+                    run_opt.target,
+                    run_opt.edge_key,
+                    run_opt.lanetype,
+                    st_makeline(n1.geometry, n2.geometry) AS geometry
+                FROM
+                    webapp.runs_optimized run_opt
+                JOIN
+                    zurich.nodes n1 ON run_opt.source = n1.osmid
+                JOIN
+                    zurich.nodes n2 ON run_opt.target = n2.osmid
+                JOIN webapp.runs r ON run_opt.id_run = r.id
+                WHERE r.id_prj = {project_id} AND run_opt.id_run = {run_id};"""
+            )
+            session.commit()
+        except Exception as e:
+            if session: session.rollback()
+            return (
+                jsonify({"error": f"Failed to create view: {str(e)}"}),
+                500,
+            )
+        finally:
+            if session:
+                session.close()
+            
     else:
         project_dict[project_id][f"run{run_id}"] = result_graph_edges
 
@@ -342,42 +423,6 @@ def evaluate_travel_time():
     bike_travel_time, car_travel_time = compute_travel_times_in_graph(lane_graph, project_od, SP_METHOD, WEIGHT_OD_FLOW)
     return (jsonify({"bike_travel_time": bike_travel_time, "car_travel_time": car_travel_time}), 200)
 
-
-@app.route("/create_project", methods=["POST"])
-def create_project():
-    """
-    Create a new project with the given name.
-    Request arguments:
-        project_name: Name of the project to create.
-    """
-    project_name = request.args.get("project_name", None)
-
-    if not project_name:
-        return jsonify({"error": "Project name is required"}), 400
-
-    session = None
-    try:
-        Session = sessionmaker(bind=DATABASE_CONNECTOR)
-        session = Session()     
-        cursor = session.connection().connection.cursor()
-        
-        cursor.execute( 
-            f"INSERT INTO webapp.projects (prj_name) VALUES ('{project_name}') RETURNING id"
-        )
-        
-        # Fetch the ID of the inserted row
-        inserted_id = cursor.fetchone()[0]
-        
-        session.commit()
-        
-        return jsonify({"message": "Project created successfully", "project_id": inserted_id}), 201
-    except Exception as e:
-        if session:
-            session.rollback()
-        return jsonify({"error": str(e)}), 500
-    finally:
-        if session:
-            session.close()
 
 
 
