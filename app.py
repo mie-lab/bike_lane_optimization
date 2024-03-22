@@ -237,7 +237,7 @@ def optimize():
     e.g. test with
     curl -X GET "http://localhost:8989/optimize?project_id=test&algorithm=betweenness_biketime&run_name=1&bike_ratio=0.1"
     """
-    project_id = request.args.get("project_id")
+    project_id = int(request.args.get("project_id"))
     #run_id = request.args.get("run_id")
     algorithm = request.args.get("algorithm", "optimize")
     ratio_bike_edges = float(request.args.get("bike_ratio", "0.4"))
@@ -357,12 +357,13 @@ def optimize():
             session = Session()
             cursor = session.connection().connection.cursor()
             cursor.execute(
-                f"""DROP VIEW IF EXISTS webapp.v_optimized;
+                f"""
+                DROP VIEW IF EXISTS webapp.v_optimized;
                 CREATE OR REPLACE VIEW webapp.v_optimized
                 AS
                 SELECT
                     ROW_NUMBER() OVER () AS edge_id,
-                    r.id_prj,
+                    run_opt.id_prj,
                     run_opt.id_run,
                     run_opt.source,
                     run_opt.target,
@@ -375,8 +376,7 @@ def optimize():
                     zurich.nodes n1 ON run_opt.source = n1.osmid
                 JOIN
                     zurich.nodes n2 ON run_opt.target = n2.osmid
-                JOIN webapp.runs r ON run_opt.id_run = r.id
-                WHERE r.id_prj = {project_id} AND run_opt.id_run = {run_id};"""
+                WHERE run_opt.id_prj = {project_id} AND run_opt.id_run = {run_id};"""
             )
             session.commit()
         except Exception as e:
@@ -424,7 +424,17 @@ def evaluate_travel_time():
     return (jsonify({"bike_travel_time": bike_travel_time, "car_travel_time": car_travel_time}), 200)
 
 
-
+@app.route("/get_projects", methods=["GET"])
+def get_projects():
+    try:
+        if DATABASE:
+            projects = pd.read_sql("SELECT id, prj_name FROM webapp.projects", DATABASE_CONNECTOR)
+            projects_json = projects.to_dict(orient="records")
+            return jsonify({"projects": projects_json}), 200
+        else:
+            return jsonify({"error": "Database not configured"}), 500
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 
