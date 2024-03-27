@@ -435,9 +435,109 @@ def get_projects():
             return jsonify({"error": "Database not configured"}), 500
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+    
+@app.route("/get_runs", methods=["GET"])
+def get_runs():
+    project_id = request.args.get("project_id")
+    try:
+        if DATABASE:
+            runs = pd.read_sql(f"SELECT * FROM webapp.runs WHERE id_prj = {project_id}", DATABASE_CONNECTOR)
+            runs_json = runs.to_dict(orient="records")
+            return jsonify({"runs": runs_json}), 200
+        else:
+            return jsonify({"error": "Database not configured"}), 500
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
-
+@app.route("/create_view", methods=["POST"])
+def create_view():
+    # get input arguments
+    project_id = request.args.get("project_id")
+    run_id = request.args.get("run_id",1)
+    layer = request.args.get("layer", "v_optimized")
+    
+    # create a view in the database
+    if DATABASE:
+        session = None
+        try:
+            Session = sessionmaker(bind=DATABASE_CONNECTOR)
+            session = Session()
+            cursor = session.connection().connection.cursor()
+            if layer == "v_optimized":
+                cursor.execute(
+                    f"""
+                    DROP VIEW IF EXISTS webapp.v_optimized;
+                    CREATE OR REPLACE VIEW webapp.v_optimized
+                    AS
+                    SELECT
+                        ROW_NUMBER() OVER () AS edge_id,
+                        run_opt.id_prj,
+                        run_opt.id_run,
+                        run_opt.source,
+                        run_opt.target,
+                        run_opt.edge_key,
+                        run_opt.lanetype,
+                        st_makeline(n1.geometry, n2.geometry) AS geometry
+                    FROM
+                        webapp.runs_optimized run_opt
+                    JOIN
+                        zurich.nodes n1 ON run_opt.source = n1.osmid
+                    JOIN
+                        zurich.nodes n2 ON run_opt.target = n2.osmid
+                    WHERE run_opt.id_prj = {project_id} AND run_opt.id_run = {run_id};"""
+                )
+            elif layer == "v_bound":
+                cursor.execute(
+                    f"""
+                    DROP VIEW IF EXISTS webapp.v_bound;
+                    CREATE OR REPLACE VIEW webapp.v_bound
+                    AS
+                    SELECT id, 
+                        id_prj, 
+                        ST_XMin(ST_Extent(geometry)) AS bbox_east, 
+                        ST_YMin(ST_Extent(geometry)) AS bbox_south, 
+                        ST_XMax(ST_Extent(geometry)) AS bbox_west, 
+                        ST_YMax(ST_Extent(geometry)) AS bbox_north,
+                        geometry
+                    FROM webapp.bounds
+                    WHERE bounds.id_prj = {project_id}
+                    GROUP BY id, id_prj;"""
+                    
+                )
+            session.commit()
+            cursor.execute(
+                f"""
+                SELECT bbox_east, bbox_south, bbox_west, bbox_north
+                FROM webapp.v_bound
+                WHERE id_prj = {project_id};"""
+            )
+            bbox_result = cursor.fetchone()
+            bbox_params = {
+                "bbox_east": bbox_result[0],
+                "bbox_south": bbox_result[1],
+                "bbox_west": bbox_result[2],
+                "bbox_north": bbox_result[3]
+            }
+            session.commit()
+        except Exception as e:
+            if session: session.rollback()
+            return (
+                jsonify({"error": f"Failed to create view: {str(e)}"}),
+                500,
+            )
+        finally:
+            if session:
+                session.close()
+            if layer == "v_bound":
+                return jsonify({
+                    "message": f"View created successfully",
+                    "bounding_box": bbox_params
+                }), 200
+            else:
+                return jsonify({"message": f"View created successfully"}), 200
+    else:
+        return jsonify({"message": "Database is not enabled"}), 400
 
 if __name__ == "__main__":
     # run
