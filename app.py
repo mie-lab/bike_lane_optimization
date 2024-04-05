@@ -238,13 +238,14 @@ def optimize():
     curl -X GET "http://localhost:8989/optimize?project_id=test&algorithm=betweenness_biketime&run_name=1&bike_ratio=0.1"
     """
     project_id = int(request.args.get("project_id"))
-    #run_id = request.args.get("run_id")
+    run_name = request.args.get("run_name","")
     algorithm = request.args.get("algorithm", "optimize")
     ratio_bike_edges = float(request.args.get("bike_ratio", "0.4"))
     optimize_every_x = float(request.args.get("optimize_frequency", "30"))
     car_weight = float(request.args.get("car_weight", "2"))
     shared_lane_factor = float(request.args.get("bike_safety_penalty", "2"))
-
+    
+    
     if DATABASE:
         try:
             edges = pd.read_sql(f"SELECT * FROM {SCHEMA}.edges WHERE id_prj = {project_id}", DATABASE_CONNECTOR)
@@ -281,7 +282,8 @@ def optimize():
             "bike_ratio": [ratio_bike_edges],
             "optimize_frequency": [optimize_every_x],
             "car_weight": [car_weight],
-            "bike_safety_penalty": [shared_lane_factor]
+            "bike_safety_penalty": [shared_lane_factor],
+            "run_name": [run_name],
         })
     else:
         if project_id not in project_dict.keys():
