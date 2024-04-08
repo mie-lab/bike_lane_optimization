@@ -378,7 +378,9 @@ def optimize():
                     zurich.nodes n1 ON run_opt.source = n1.osmid
                 JOIN
                     zurich.nodes n2 ON run_opt.target = n2.osmid
-                WHERE run_opt.id_prj = {project_id} AND run_opt.id_run = {run_id};"""
+                WHERE run_opt.id_prj = {project_id} AND run_opt.id_run = {run_id};
+                GRANT SELECT, INSERT, UPDATE, DELETE ON webapp.runs TO postgres, selina, mbauckhage;
+                """
             )
             session.commit()
         except Exception as e:
@@ -487,7 +489,8 @@ def create_view():
                         zurich.nodes n1 ON run_opt.source = n1.osmid
                     JOIN
                         zurich.nodes n2 ON run_opt.target = n2.osmid
-                    WHERE run_opt.id_prj = {project_id} AND run_opt.id_run = {run_id};"""
+                    WHERE run_opt.id_prj = {project_id} AND run_opt.id_run = {run_id};
+                    GRANT SELECT, INSERT, UPDATE, DELETE ON webapp.runs TO postgres, selina, mbauckhage;"""
                 )
             elif layer == "v_bound":
                 cursor.execute(
@@ -504,7 +507,8 @@ def create_view():
                         geometry
                     FROM webapp.bounds
                     WHERE bounds.id_prj = {project_id}
-                    GROUP BY id, id_prj;"""
+                    GROUP BY id, id_prj;
+                    GRANT SELECT, INSERT, UPDATE, DELETE ON webapp.runs TO postgres, selina, mbauckhage;"""
                     
                 )
             session.commit()
