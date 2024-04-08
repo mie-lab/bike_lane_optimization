@@ -379,7 +379,7 @@ def optimize():
                 JOIN
                     zurich.nodes n2 ON run_opt.target = n2.osmid
                 WHERE run_opt.id_prj = {project_id} AND run_opt.id_run = {run_id};
-                GRANT SELECT, INSERT, UPDATE, DELETE ON webapp.runs TO postgres, selina, mbauckhage;
+                GRANT SELECT, INSERT, UPDATE, DELETE ON webapp.v_optimized TO postgres, selina, mbauckhage;
                 """
             )
             session.commit()
@@ -490,7 +490,7 @@ def create_view():
                     JOIN
                         zurich.nodes n2 ON run_opt.target = n2.osmid
                     WHERE run_opt.id_prj = {project_id} AND run_opt.id_run = {run_id};
-                    GRANT SELECT, INSERT, UPDATE, DELETE ON webapp.runs TO postgres, selina, mbauckhage;"""
+                    GRANT SELECT, INSERT, UPDATE, DELETE ON webapp.v_optimized TO postgres, selina, mbauckhage;"""
                 )
             elif layer == "v_bound":
                 cursor.execute(
@@ -508,7 +508,7 @@ def create_view():
                     FROM webapp.bounds
                     WHERE bounds.id_prj = {project_id}
                     GROUP BY id, id_prj;
-                    GRANT SELECT, INSERT, UPDATE, DELETE ON webapp.runs TO postgres, selina, mbauckhage;"""
+                    GRANT SELECT, INSERT, UPDATE, DELETE ON webapp.v_bound TO postgres, selina, mbauckhage;"""
                     
                 )
             session.commit()
