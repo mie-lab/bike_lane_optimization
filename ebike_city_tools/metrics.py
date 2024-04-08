@@ -47,7 +47,7 @@ def od_sp(G, od, weight, weight_od_flow=False):
         if row["trips"] == 0:
             continue
         # compute shortest path
-        sp_len = nx.shortest_path_length(G, source=row["s"], target=row["t"], weight=weight)
+        sp_len = nx.shortest_path_length(G, source=row["source"], target=row["target"], weight=weight)
         # apply weight if desired
         if weight_od_flow:
             sp_len *= row["trips"]

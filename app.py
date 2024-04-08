@@ -417,9 +417,9 @@ def evaluate_travel_time():
     project_id = request.args.get("project_id")
     run_id = request.args.get("run_name")
 
-    project_edges = pd.read_sql(f"SELECT * FROM {SCHEMA}.{project_id}_edges", DATABASE_CONNECTOR)
-    project_od = pd.read_sql(f"SELECT * FROM {SCHEMA}.{project_id}_od", DATABASE_CONNECTOR)
-    run_output = pd.read_sql(f"SELECT * FROM {SCHEMA}.{project_id}_run{run_id}", DATABASE_CONNECTOR)
+    project_edges = pd.read_sql(f"SELECT * FROM {SCHEMA}.edges WHERE id_prj = {project_id}", DATABASE_CONNECTOR)
+    project_od = pd.read_sql(f"SELECT * FROM {SCHEMA}.od WHERE id_prj = {project_id}", DATABASE_CONNECTOR)
+    run_output = pd.read_sql(f"SELECT * FROM {SCHEMA}.runs_optimized WHERE id_prj = {project_id} AND id_run = {run_id}", DATABASE_CONNECTOR)
 
     lane_graph = recreate_lane_graph(project_edges, run_output)
 
