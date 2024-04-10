@@ -427,6 +427,21 @@ def evaluate_travel_time():
     bike_travel_time, car_travel_time = compute_travel_times_in_graph(lane_graph, project_od, SP_METHOD, WEIGHT_OD_FLOW)
     return (jsonify({"bike_travel_time": bike_travel_time, "car_travel_time": car_travel_time}), 200)
 
+@app.route("/get_pareto", methods=["GET"])
+def get_pareto():
+    try:
+        if DATABASE:
+            project_id = request.args.get("project_id")
+            run_id = request.args.get("run_name")
+
+            pareto = pd.read_sql(f"SELECT * FROM {SCHEMA}.pareto WHERE id_prj = {project_id} AND id_run = {run_id}", DATABASE_CONNECTOR)
+            pareto_json = pareto.to_dict(orient="records")
+            return jsonify({"projects": pareto_json}), 200
+        else:
+            return jsonify({"error": "Database not configured"}), 500
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 
 @app.route("/get_projects", methods=["GET"])
 def get_projects():
