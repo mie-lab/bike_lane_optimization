@@ -88,7 +88,8 @@ def generate_od_geometry(area_polygon: gpd.GeoDataFrame, trips_microcensus: gpd.
 def recreate_lane_graph(project_edges: pd.DataFrame, run_output: pd.DataFrame):
     """Auxiliary method to create the graph from the project edges and the output of one run"""
     # set index
-    if "source" in project_edges:
+    project_edges["edge_key"] = project_edges["edge_key"].astype(str)
+    if "source" in project_edges or "s" in project_edges:
         project_edges.set_index(["source", "target", "edge_key"], inplace=True)
 
     # add additional edges for new lanes (reversed bike lanes in the other direction)
@@ -111,7 +112,7 @@ def recreate_lane_graph(project_edges: pd.DataFrame, run_output: pd.DataFrame):
 
     counter = 0
     for _, bike_forward_row in replaced_bike_edges.iterrows():
-        s, t, k = bike_forward_row["source"], bike_forward_row["target"], bike_forward_row["edge_key"]
+        s, t, k = bike_forward_row["source"], bike_forward_row["target"], str(bike_forward_row["edge_key"])
         project_edges.loc[(s, t, k), "lanetype"] = "P"
         counter += 1
     # print(f"converted {counter} edges")

@@ -340,6 +340,12 @@ def optimize():
     result_graph_edges['id_prj'] = project_id
     pareto_df['id_run'] = run_id
     pareto_df['id_prj'] = project_id   
+
+    # compute relative timees
+    base_bike, base_car = pareto_df["bike_time"].max(), pareto_df["car_time"].min()
+    pareto_df["car_time_change"] = (pareto_df["car_time"] - base_car) / base_car * 100
+    pareto_df["bike_time_change"] = (pareto_df["bike_time"] - base_bike) / base_bike * 100
+
     if DATABASE:
         run_list.to_sql(
             f"runs", DATABASE_CONNECTOR, schema=SCHEMA, if_exists="append", index=False
@@ -421,8 +427,7 @@ def evaluate_travel_time():
     project_od = pd.read_sql(f"SELECT * FROM {SCHEMA}.od WHERE id_prj = {project_id}", DATABASE_CONNECTOR)
     run_output = pd.read_sql(f"SELECT * FROM {SCHEMA}.runs_optimized WHERE id_prj = {project_id} AND id_run = {run_id}", DATABASE_CONNECTOR)
 
-    
-
+    # put lanetype attribute from run_output onto the edges and update bike and car travel time attributes
     lane_graph = recreate_lane_graph(project_edges, run_output)
     
     # rename columns
@@ -430,7 +435,7 @@ def evaluate_travel_time():
     project_od.rename(columns={'source': 's', 'target': 't'}, inplace=True)
     run_output.rename(columns={'source': 's', 'target': 't'}, inplace=True)
 
-    # measure travel times
+    # measure travel times -> TODO: would be better to just use the pareto times, and do some other evaluation here
     bike_travel_time, car_travel_time = compute_travel_times_in_graph(lane_graph, project_od, SP_METHOD, WEIGHT_OD_FLOW)
     return (jsonify({"bike_travel_time": bike_travel_time, "car_travel_time": car_travel_time}), 200)
 
