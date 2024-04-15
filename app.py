@@ -221,6 +221,22 @@ def generate_input_graph():
     return (jsonify({"project_id": project_id, "variables": nr_variables, "expected_runtime": runtime_min}), 200)
 
 
+@app.route("/get_new_run_id", methods=["GET"])
+def get_new_run_id():
+    project_id = int(request.args.get("project_id"))
+    if DATABASE:
+        try:
+            run_id = pd.read_sql(f"SELECT MAX(id_run) FROM {SCHEMA}.runs WHERE id_prj = {project_id}", DATABASE_CONNECTOR)
+            if run_id.empty or run_id.iloc[0][0] is None:
+                run_id = 1
+            else:
+                run_id = int(run_id.iloc[0][0]) + 1
+            return jsonify({"run_id": run_id}), 200
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+    else:
+        return jsonify({"error": "Database not configured"}), 500
+
 @app.route("/optimize", methods=["GET", "POST"])
 def optimize():
     """
@@ -400,7 +416,8 @@ def optimize():
         jsonify(
             {
                 "project_id": project_id,
-                "run_name": run_id,
+                "run_id": run_id,
+                "run_name": run_name,
                 "bike_edges": len(result_graph_edges[result_graph_edges["lanetype"] == "P"]),
             }
         ),
