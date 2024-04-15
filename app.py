@@ -421,6 +421,11 @@ def evaluate_travel_time():
     project_od = pd.read_sql(f"SELECT * FROM {SCHEMA}.od WHERE id_prj = {project_id}", DATABASE_CONNECTOR)
     run_output = pd.read_sql(f"SELECT * FROM {SCHEMA}.runs_optimized WHERE id_prj = {project_id} AND id_run = {run_id}", DATABASE_CONNECTOR)
 
+    # rename columns
+    project_edges.rename(columns={'source': 's', 'target': 't'}, inplace=True)
+    project_od.rename(columns={'source': 's', 'target': 't'}, inplace=True)
+    run_output.rename(columns={'source': 's', 'target': 't'}, inplace=True)
+
     lane_graph = recreate_lane_graph(project_edges, run_output)
 
     # measure travel times
