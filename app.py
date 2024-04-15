@@ -421,12 +421,14 @@ def evaluate_travel_time():
     project_od = pd.read_sql(f"SELECT * FROM {SCHEMA}.od WHERE id_prj = {project_id}", DATABASE_CONNECTOR)
     run_output = pd.read_sql(f"SELECT * FROM {SCHEMA}.runs_optimized WHERE id_prj = {project_id} AND id_run = {run_id}", DATABASE_CONNECTOR)
 
+    
+
+    lane_graph = recreate_lane_graph(project_edges, run_output)
+    
     # rename columns
     project_edges.rename(columns={'source': 's', 'target': 't'}, inplace=True)
     project_od.rename(columns={'source': 's', 'target': 't'}, inplace=True)
     run_output.rename(columns={'source': 's', 'target': 't'}, inplace=True)
-
-    lane_graph = recreate_lane_graph(project_edges, run_output)
 
     # measure travel times
     bike_travel_time, car_travel_time = compute_travel_times_in_graph(lane_graph, project_od, SP_METHOD, WEIGHT_OD_FLOW)
@@ -489,8 +491,7 @@ def create_view():
             session = Session()
             cursor = session.connection().connection.cursor()
             if layer == "v_optimized":
-                cursor.execute(
-                    f"""
+                sql_statement = f"""
                     DROP VIEW IF EXISTS webapp.v_optimized;
                     CREATE OR REPLACE VIEW webapp.v_optimized
                     AS
@@ -511,7 +512,8 @@ def create_view():
                         zurich.nodes n2 ON run_opt.target = n2.osmid
                     WHERE run_opt.id_prj = {project_id} AND run_opt.id_run = {run_id};
                     GRANT ALL ON webapp.v_optimized TO postgres, selina, mbauckhage;"""
-                )
+                cursor.execute(sql_statement)
+                session.commit()
             elif layer == "v_bound":
                 cursor.execute(
                     f"""
