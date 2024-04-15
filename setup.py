@@ -20,7 +20,7 @@ setup(
     author_email=("nwiedemann@ethz.ch"),
     license="MIT",
     url="https://github.com/mie-lab/bike_lane_optimization",
-    install_requires=["numpy", "pandas", "scipy", "networkx", "matplotlib", "seaborn", "geopandas"],
+    install_requires=["numpy", "pandas", "scipy", "networkx", "matplotlib", "seaborn", "geopandas","sqlalchemy","psycopg2"],
     classifiers=[
         "License :: OSI Approved :: MIT",
         "Intended Audience :: Science/Research",

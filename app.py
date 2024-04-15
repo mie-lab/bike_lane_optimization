@@ -1,9 +1,13 @@
 import os
 import geopandas as gpd
+import sqlalchemy
 import networkx as nx
 import pandas as pd
 from flask import Flask, jsonify, request
 from flask_cors import CORS, cross_origin  # needs to be installed via pip install flask-cors
+
+from sqlalchemy.orm import sessionmaker
+
 
 from ebike_city_tools.graph_utils import (
     street_to_lane_graph,
@@ -108,7 +112,10 @@ def generate_input_graph():
     # get input arguments: polygons for bounding the region and OD mode
     bounds_polygon = request.get_json(force=True)
     od_creation_mode = request.args.get("odmode", "fast")
-    project_id = request.args.get("project_name", None)
+    #project_id = request.args.get("project_id", None)
+    project_name = request.args.get("project_name", None)
+    
+    
 
     try:
         area_polygon = Polygon(bounds_polygon)
@@ -122,6 +129,26 @@ def generate_input_graph():
     # if the graph is empty, return message
     if len(zurich_edges_area) == 0:
         return (jsonify("No edges found in this area. Try with other coordinates."), 400)
+
+    # Create a new project
+    session = None
+    try:
+        Session = sessionmaker(bind=DATABASE_CONNECTOR)
+        session = Session()
+        cursor = session.connection().connection.cursor()
+        cursor.execute(
+            f"INSERT INTO webapp.projects (prj_name) VALUES ('{project_name}') RETURNING id"
+        )
+        project_id = cursor.fetchone()[0]
+        session.commit()
+    except Exception as e:
+        if session:
+            session.rollback()
+        return jsonify({"error": str(e)}), 500
+    finally:
+        if session:
+            session.close()
+
 
     # create OD matrix
     if od_creation_mode == "fast":
@@ -155,23 +182,34 @@ def generate_input_graph():
 
     # save nodes for the geometry
     if DATABASE:
+        
+        area_polygon['id_prj'] = project_id
         area_polygon.to_postgis(
-            f"{project_id}_bounds", DATABASE_CONNECTOR, schema=SCHEMA, if_exists="replace", index=False
+            f"bounds", DATABASE_CONNECTOR, schema=SCHEMA, if_exists="append", index=False
         )
-        save_nodes = zurich_nodes_area.reset_index().rename({"osmid": "node"}, axis=1)[
-            ["node", "geometry"]
+        
+        zurich_nodes_area['id_prj'] = project_id
+        save_nodes = zurich_nodes_area.reset_index().rename({"osmid": "id_node"}, axis=1)[
+            ["id_prj","id_node"]
         ]  # only save geometry and id
-        save_nodes.to_postgis(
-            f"{project_id}_nodes", DATABASE_CONNECTOR, schema=SCHEMA, if_exists="replace", index=False
+        
+        save_nodes.to_sql(
+            f"nodes", DATABASE_CONNECTOR, schema=SCHEMA, if_exists="append", index=False
         )
+        
         # save edges for constructing the graph later
         save_edges = nx.to_pandas_edgelist(lane_graph, edge_key="edge_key")[
             ["source", "target", "edge_key", "fixed", "lanetype", "distance", "gradient", "speed_limit"]
         ]
-        save_edges.to_sql(f"{project_id}_edges", DATABASE_CONNECTOR, schema=SCHEMA, if_exists="replace", index=False)
+        save_edges['id_prj'] = project_id
+        save_edges.to_sql(f"edges", DATABASE_CONNECTOR, schema=SCHEMA, if_exists="append", index=False)
+        
+        
         # save OD matrix
+        od_matrix_area_extended['id_prj'] = project_id
+        od_matrix_area_extended.rename(columns={'s': 'source', 't': 'target'}, inplace=True)
         od_matrix_area_extended.to_sql(
-            f"{project_id}_od", DATABASE_CONNECTOR, schema=SCHEMA, if_exists="replace", index=False
+            f"od", DATABASE_CONNECTOR, schema=SCHEMA, if_exists="append", index=False
         )
     else:
         # for debugging without using a database: save simpy in a dictionary
@@ -180,7 +218,7 @@ def generate_input_graph():
             project_id = 0 if len(key_list) == 0 else max(key_list) + 1
         project_dict[project_id] = {"lane_graph": lane_graph, "od": od, "bounds": area_polygon}
 
-    return (jsonify({"project_name": project_id, "variables": nr_variables, "expected_runtime": runtime_min}), 200)
+    return (jsonify({"project_id": project_id, "variables": nr_variables, "expected_runtime": runtime_min}), 200)
 
 
 @app.route("/optimize", methods=["GET", "POST"])
@@ -188,7 +226,7 @@ def optimize():
     """
     Run optimization on graph that was previously created
     Request arguments:
-        project_name: Name of the project, defined by one specific area. The data must be preloaded
+        project_id: Name of the project, defined by one specific area. The data must be preloaded
         run_name: Name of the specific run, defined by a set of parameters
         algorithm: One of {optimize, betweenness_biketime, betweenness_cartime, betweenness_topdown} - see paper
         ratio_bike_edges: How many lanes should preferably become bike lanes? Defaults to 0.4 --> 40% of all lanes
@@ -197,20 +235,36 @@ def optimize():
         bike_safety_penalty: factor by how much the perceived bike travel time increases if cycling on car lane.
             Defaults to 2, i.e. the perceived travel time on a car lane is twice as much as the one on a bike lane
     e.g. test with
-    curl -X GET "http://localhost:8989/optimize?project_name=test&algorithm=betweenness_biketime&run_name=1&bike_ratio=0.1"
+    curl -X GET "http://localhost:8989/optimize?project_id=test&algorithm=betweenness_biketime&run_name=1&bike_ratio=0.1"
     """
-    project_id = request.args.get("project_name")
-    run_id = request.args.get("run_name")
+    project_id = int(request.args.get("project_id"))
+    run_name = request.args.get("run_name","")
     algorithm = request.args.get("algorithm", "optimize")
     ratio_bike_edges = float(request.args.get("bike_ratio", "0.4"))
     optimize_every_x = float(request.args.get("optimize_frequency", "30"))
     car_weight = float(request.args.get("car_weight", "2"))
     shared_lane_factor = float(request.args.get("bike_safety_penalty", "2"))
-
+    
+    
     if DATABASE:
         try:
-            od = pd.read_sql(f"SELECT * FROM {SCHEMA}.{project_id}_od", DATABASE_CONNECTOR)
-            edges = pd.read_sql(f"SELECT * FROM {SCHEMA}.{project_id}_edges", DATABASE_CONNECTOR)
+            edges = pd.read_sql(f"SELECT * FROM {SCHEMA}.edges WHERE id_prj = {project_id}", DATABASE_CONNECTOR)
+            od = pd.read_sql(f"SELECT * FROM {SCHEMA}.od WHERE id_prj = {project_id}", DATABASE_CONNECTOR)
+            
+            
+            edges = edges[["source", "target", "edge_key", "fixed","lanetype","distance","gradient","speed_limit"]]
+            od.rename(columns={'source': 's', 'target': 't'}, inplace=True)
+            od = od[["s", "t", "trips"]]
+            
+            # Fetch run_id from the database after insertion
+            run_id = pd.read_sql(f"SELECT MAX(id_run) FROM {SCHEMA}.runs WHERE id_prj = {project_id}", DATABASE_CONNECTOR)
+            print("run Id: --> ", run_id.iloc[0][0])
+            if run_id.empty or run_id.iloc[0][0] is None:
+                run_id = 1
+            else:
+                run_id = int(run_id.iloc[0][0]) + 1
+
+            
         except:
             return (
                 jsonify("Problem loading project from database. To start a new project, call `construct_graph` first"),
@@ -222,7 +276,15 @@ def optimize():
             edge_attr=[col for col in edges.columns if col not in ["source", "target", "edge_key"]],
             create_using=nx.MultiDiGraph,
         )
-        print(lane_graph.number_of_edges())
+        run_list = pd.DataFrame({
+            "id_prj": [project_id],
+            "algorithm": [algorithm],
+            "bike_ratio": [ratio_bike_edges],
+            "optimize_frequency": [optimize_every_x],
+            "car_weight": [car_weight],
+            "bike_safety_penalty": [shared_lane_factor],
+            "run_name": [run_name],
+        })
     else:
         if project_id not in project_dict.keys():
             return (jsonify("Project not found. Call `construct_graph` first to start a new project"), 400)
@@ -268,25 +330,76 @@ def optimize():
         )
         # RUN pareto optimization, potentially with saving the graph after each optimization step
         result_graph, pareto_df = opt.pareto(fix_multilane=FIX_MULTILANE, return_graph_at_edges=desired_edge_count)
-
+    print("Result graph: ", result_graph)
     # convert to pandas datafrme
     result_graph_edges = nx.to_pandas_edgelist(result_graph, edge_key="edge_key")[
         ["source", "target", "edge_key", "lanetype"]
     ]
+    
+    result_graph_edges['id_run'] = run_id
+    result_graph_edges['id_prj'] = project_id
+    pareto_df['id_run'] = run_id
+    pareto_df['id_prj'] = project_id   
     if DATABASE:
+        run_list.to_sql(
+            f"runs", DATABASE_CONNECTOR, schema=SCHEMA, if_exists="append", index=False
+        )
+        
         result_graph_edges.to_sql(
-            f"{project_id}_run{run_id}", DATABASE_CONNECTOR, schema=SCHEMA, if_exists="replace", index=False
+            f"runs_optimized", DATABASE_CONNECTOR, schema=SCHEMA, if_exists="append", index=False
         )
         pareto_df.to_sql(
-            f"{project_id}_run{run_id}_pareto", DATABASE_CONNECTOR, schema=SCHEMA, if_exists="replace", index=False
+            f"pareto", DATABASE_CONNECTOR, schema=SCHEMA, if_exists="append", index=False
         )
+        session = None
+        try:
+            
+            
+            Session = sessionmaker(bind=DATABASE_CONNECTOR)
+            session = Session()
+            cursor = session.connection().connection.cursor()
+            cursor.execute(
+                f"""
+                DROP VIEW IF EXISTS webapp.v_optimized;
+                CREATE OR REPLACE VIEW webapp.v_optimized
+                AS
+                SELECT
+                    ROW_NUMBER() OVER () AS edge_id,
+                    run_opt.id_prj,
+                    run_opt.id_run,
+                    run_opt.source,
+                    run_opt.target,
+                    run_opt.edge_key,
+                    run_opt.lanetype,
+                    st_makeline(n1.geometry, n2.geometry) AS geometry
+                FROM
+                    webapp.runs_optimized run_opt
+                JOIN
+                    zurich.nodes n1 ON run_opt.source = n1.osmid
+                JOIN
+                    zurich.nodes n2 ON run_opt.target = n2.osmid
+                WHERE run_opt.id_prj = {project_id} AND run_opt.id_run = {run_id};
+                GRANT ALL ON webapp.v_optimized TO postgres, selina, mbauckhage;
+                """
+            )
+            session.commit()
+        except Exception as e:
+            if session: session.rollback()
+            return (
+                jsonify({"error": f"Failed to create view: {str(e)}"}),
+                500,
+            )
+        finally:
+            if session:
+                session.close()
+            
     else:
         project_dict[project_id][f"run{run_id}"] = result_graph_edges
 
     return (
         jsonify(
             {
-                "project_name": project_id,
+                "project_id": project_id,
                 "run_name": run_id,
                 "bike_edges": len(result_graph_edges[result_graph_edges["lanetype"] == "P"]),
             }
@@ -301,19 +414,158 @@ def evaluate_travel_time():
     Only works with DATABASE = True
     """
     assert DATABASE
-    project_id = request.args.get("project_name")
+    project_id = request.args.get("project_id")
     run_id = request.args.get("run_name")
 
-    project_edges = pd.read_sql(f"SELECT * FROM {SCHEMA}.{project_id}_edges", DATABASE_CONNECTOR)
-    project_od = pd.read_sql(f"SELECT * FROM {SCHEMA}.{project_id}_od", DATABASE_CONNECTOR)
-    run_output = pd.read_sql(f"SELECT * FROM {SCHEMA}.{project_id}_run{run_id}", DATABASE_CONNECTOR)
+    project_edges = pd.read_sql(f"SELECT * FROM {SCHEMA}.edges WHERE id_prj = {project_id}", DATABASE_CONNECTOR)
+    project_od = pd.read_sql(f"SELECT * FROM {SCHEMA}.od WHERE id_prj = {project_id}", DATABASE_CONNECTOR)
+    run_output = pd.read_sql(f"SELECT * FROM {SCHEMA}.runs_optimized WHERE id_prj = {project_id} AND id_run = {run_id}", DATABASE_CONNECTOR)
+
+    
 
     lane_graph = recreate_lane_graph(project_edges, run_output)
+    
+    # rename columns
+    project_edges.rename(columns={'source': 's', 'target': 't'}, inplace=True)
+    project_od.rename(columns={'source': 's', 'target': 't'}, inplace=True)
+    run_output.rename(columns={'source': 's', 'target': 't'}, inplace=True)
 
     # measure travel times
     bike_travel_time, car_travel_time = compute_travel_times_in_graph(lane_graph, project_od, SP_METHOD, WEIGHT_OD_FLOW)
     return (jsonify({"bike_travel_time": bike_travel_time, "car_travel_time": car_travel_time}), 200)
 
+@app.route("/get_pareto", methods=["GET"])
+def get_pareto():
+    try:
+        if DATABASE:
+            project_id = request.args.get("project_id")
+            run_id = request.args.get("run_name")
+
+            pareto = pd.read_sql(f"SELECT * FROM {SCHEMA}.pareto WHERE id_prj = {project_id} AND id_run = {run_id}", DATABASE_CONNECTOR)
+            pareto_json = pareto.to_dict(orient="records")
+            return jsonify({"projects": pareto_json}), 200
+        else:
+            return jsonify({"error": "Database not configured"}), 500
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/get_projects", methods=["GET"])
+def get_projects():
+    try:
+        if DATABASE:
+            projects = pd.read_sql("SELECT id, prj_name FROM webapp.projects", DATABASE_CONNECTOR)
+            projects_json = projects.to_dict(orient="records")
+            return jsonify({"projects": projects_json}), 200
+        else:
+            return jsonify({"error": "Database not configured"}), 500
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    
+@app.route("/get_runs", methods=["GET"])
+def get_runs():
+    project_id = request.args.get("project_id")
+    try:
+        if DATABASE:
+            runs = pd.read_sql(f"SELECT * FROM webapp.runs WHERE id_prj = {project_id}", DATABASE_CONNECTOR)
+            runs_json = runs.to_dict(orient="records")
+            return jsonify({"runs": runs_json}), 200
+        else:
+            return jsonify({"error": "Database not configured"}), 500
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/create_view", methods=["POST"])
+def create_view():
+    # get input arguments
+    project_id = request.args.get("project_id")
+    run_id = request.args.get("run_id",1)
+    layer = request.args.get("layer", "v_optimized")
+    
+    # create a view in the database
+    if DATABASE:
+        session = None
+        try:
+            Session = sessionmaker(bind=DATABASE_CONNECTOR)
+            session = Session()
+            cursor = session.connection().connection.cursor()
+            if layer == "v_optimized":
+                sql_statement = f"""
+                    DROP VIEW IF EXISTS webapp.v_optimized;
+                    CREATE OR REPLACE VIEW webapp.v_optimized
+                    AS
+                    SELECT
+                        ROW_NUMBER() OVER () AS edge_id,
+                        run_opt.id_prj,
+                        run_opt.id_run,
+                        run_opt.source,
+                        run_opt.target,
+                        run_opt.edge_key,
+                        run_opt.lanetype,
+                        st_makeline(n1.geometry, n2.geometry) AS geometry
+                    FROM
+                        webapp.runs_optimized run_opt
+                    JOIN
+                        zurich.nodes n1 ON run_opt.source = n1.osmid
+                    JOIN
+                        zurich.nodes n2 ON run_opt.target = n2.osmid
+                    WHERE run_opt.id_prj = {project_id} AND run_opt.id_run = {run_id};
+                    GRANT ALL ON webapp.v_optimized TO postgres, selina, mbauckhage;"""
+                cursor.execute(sql_statement)
+                session.commit()
+            elif layer == "v_bound":
+                cursor.execute(
+                    f"""
+                    DROP VIEW IF EXISTS webapp.v_bound;
+                    CREATE OR REPLACE VIEW webapp.v_bound
+                    AS
+                    SELECT id, 
+                        id_prj, 
+                        ST_XMin(ST_Extent(geometry)) AS bbox_east, 
+                        ST_YMin(ST_Extent(geometry)) AS bbox_south, 
+                        ST_XMax(ST_Extent(geometry)) AS bbox_west, 
+                        ST_YMax(ST_Extent(geometry)) AS bbox_north,
+                        geometry
+                    FROM webapp.bounds
+                    WHERE bounds.id_prj = {project_id}
+                    GROUP BY id, id_prj;
+                    GRANT ALL ON webapp.v_bound TO postgres, selina, mbauckhage;"""
+                    
+                )
+                session.commit()
+                cursor.execute(
+                    f"""
+                    SELECT bbox_east, bbox_south, bbox_west, bbox_north
+                    FROM webapp.v_bound
+                    WHERE id_prj = {project_id};"""
+                )
+                bbox_result = cursor.fetchone()
+                bbox_params = {
+                    "bbox_east": bbox_result[0],
+                    "bbox_south": bbox_result[1],
+                    "bbox_west": bbox_result[2],
+                    "bbox_north": bbox_result[3]
+                }
+                session.commit()
+        except Exception as e:
+            if session: session.rollback()
+            return (
+                jsonify({"error": f"Failed to create view: {str(e)}"}),
+                500,
+            )
+        finally:
+            if session:
+                session.close()
+            if layer == "v_bound":
+                return jsonify({
+                    "message": f"View created successfully",
+                    "bounding_box": bbox_params
+                }), 200
+            else:
+                return jsonify({"message": f"View created successfully"}), 200
+    else:
+        return jsonify({"message": "Database is not enabled"}), 400
 
 if __name__ == "__main__":
     # run
