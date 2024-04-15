@@ -34,7 +34,7 @@ def closeness(G):
     return np.mean(list(nx.closeness_centrality(G).values()))
 
 
-def od_sp(G, od, weight, weight_od_flow=False):
+def od_sp(G, od, weight, weight_od_flow=False,source_col_name="s", target_col_name="t"):
     """
     Compute shortest paths of the OD matrix, potentially weighted by the flow
     G: graph with edge attribute <weight>
@@ -47,7 +47,7 @@ def od_sp(G, od, weight, weight_od_flow=False):
         if row["trips"] == 0:
             continue
         # compute shortest path
-        sp_len = nx.shortest_path_length(G, source=row["source"], target=row["target"], weight=weight)
+        sp_len = nx.shortest_path_length(G, source=row[source_col_name], target=row[target_col_name], weight=weight)
         # apply weight if desired
         if weight_od_flow:
             sp_len *= row["trips"]
