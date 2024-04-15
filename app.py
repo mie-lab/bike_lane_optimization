@@ -526,21 +526,21 @@ def create_view():
                     GRANT ALL ON webapp.v_bound TO postgres, selina, mbauckhage;"""
                     
                 )
-            session.commit()
-            cursor.execute(
-                f"""
-                SELECT bbox_east, bbox_south, bbox_west, bbox_north
-                FROM webapp.v_bound
-                WHERE id_prj = {project_id};"""
-            )
-            bbox_result = cursor.fetchone()
-            bbox_params = {
-                "bbox_east": bbox_result[0],
-                "bbox_south": bbox_result[1],
-                "bbox_west": bbox_result[2],
-                "bbox_north": bbox_result[3]
-            }
-            session.commit()
+                session.commit()
+                cursor.execute(
+                    f"""
+                    SELECT bbox_east, bbox_south, bbox_west, bbox_north
+                    FROM webapp.v_bound
+                    WHERE id_prj = {project_id};"""
+                )
+                bbox_result = cursor.fetchone()
+                bbox_params = {
+                    "bbox_east": bbox_result[0],
+                    "bbox_south": bbox_result[1],
+                    "bbox_west": bbox_result[2],
+                    "bbox_north": bbox_result[3]
+                }
+                session.commit()
         except Exception as e:
             if session: session.rollback()
             return (
