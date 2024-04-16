@@ -432,6 +432,25 @@ def optimize():
     )
 
 
+@app.route("/get_distance_per_lane_type", methods=["GET"])
+def get_distance_per_lane_type():
+    try:
+        if DATABASE:
+            project_id = int(request.args.get("project_id"))
+            run_id = request.args.get("run_name")
+
+            bike_distance = pd.read_sql(f"SELECT SUM(edges.distance) AS total_bike_lane_distance FROM {SCHEMA}.runs_optimized JOIN {SCHEMA}.edges ON runs_optimized.source = edges.source AND runs_optimized.target = edges.target WHERE runs_optimized.lanetype = 'P' AND runs_optimized.id_run ={run_id} AND runs_optimized.id_prj = {project_id}", DATABASE_CONNECTOR)
+            car_distance = pd.read_sql(f"SELECT SUM(edges.distance) AS total_car_lane_distance FROM {SCHEMA}.runs_optimized JOIN {SCHEMA}.edges ON runs_optimized.source = edges.source AND runs_optimized.target = edges.target WHERE runs_optimized.lanetype = 'M>' AND runs_optimized.id_run ={run_id} AND runs_optimized.id_prj = {project_id}", DATABASE_CONNECTOR)
+            bike_distance_json = bike_distance.to_dict(orient="records")
+            car_distance_json = car_distance.to_dict(orient="records")
+
+            return (jsonify({"distance_bike": bike_distance_json, "distance_car": car_distance_json}), 200)
+        else:
+            return jsonify({"error": "Database not configured"}), 500
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/eval_travel_time", methods=["GET"])
 def evaluate_travel_time():
     """Load the output of one run and compute the travel times
