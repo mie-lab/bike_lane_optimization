@@ -258,7 +258,8 @@ def optimize():
     algorithm = request.args.get("algorithm", "optimize")
     ratio_bike_edges = float(request.args.get("bike_ratio", "0.4"))
     optimize_every_x = float(request.args.get("optimize_frequency", "30"))
-    car_weight = float(request.args.get("car_weight", "2"))
+
+    car_weight = float(request.args.get("car_weight", "0.7"))
     shared_lane_factor = float(request.args.get("bike_safety_penalty", "2"))
     
     
