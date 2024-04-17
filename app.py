@@ -496,7 +496,7 @@ def get_pareto():
 def get_projects():
     try:
         if DATABASE:
-            projects = pd.read_sql("SELECT id, prj_name FROM webapp.projects", DATABASE_CONNECTOR)
+            projects = pd.read_sql("SELECT id, prj_name, created FROM webapp.projects", DATABASE_CONNECTOR)
             projects_json = projects.to_dict(orient="records")
             return jsonify({"projects": projects_json}), 200
         else:
