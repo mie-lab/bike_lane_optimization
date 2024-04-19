@@ -572,16 +572,15 @@ def create_view():
                     FROM webapp.bounds
                     WHERE bounds.id_prj = {project_id}
                     GROUP BY id, id_prj;
-                    GRANT ALL ON webapp.v_bound TO postgres, selina, mbauckhage;"""
+                    GRANT ALL ON webapp.v_bound TO postgres, selina, mbauckhage;
                     
-                )
-                session.commit()
-                cursor.execute(
-                    f"""
                     SELECT bbox_east, bbox_south, bbox_west, bbox_north
                     FROM webapp.v_bound
                     WHERE id_prj = {project_id};"""
+                    
                 )
+                
+                session.commit()
                 bbox_result = cursor.fetchone()
                 bbox_params = {
                     "bbox_east": bbox_result[0],
@@ -589,7 +588,7 @@ def create_view():
                     "bbox_west": bbox_result[2],
                     "bbox_north": bbox_result[3]
                 }
-                session.commit()
+                
         except Exception as e:
             if session: session.rollback()
             return (
