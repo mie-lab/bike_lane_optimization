@@ -386,22 +386,38 @@ def optimize():
                 DROP VIEW IF EXISTS webapp.v_optimized;
                 CREATE OR REPLACE VIEW webapp.v_optimized
                 AS
-                SELECT
-                    ROW_NUMBER() OVER () AS edge_id,
-                    run_opt.id_prj,
-                    run_opt.id_run,
-                    run_opt.source,
-                    run_opt.target,
-                    run_opt.edge_key,
-                    run_opt.lanetype,
-                    st_makeline(n1.geometry, n2.geometry) AS geometry
-                FROM
-                    webapp.runs_optimized run_opt
-                JOIN
-                    zurich.nodes n1 ON run_opt.source = n1.osmid
-                JOIN
-                    zurich.nodes n2 ON run_opt.target = n2.osmid
-                WHERE run_opt.id_prj = {project_id} AND run_opt.id_run = {run_id};
+                WITH run_opt AS (
+                    SELECT row_number() OVER () AS edge_id,
+                        id_prj,
+                        id_run,
+                        source,
+                        target,
+                        edge_key,
+                        lanetype,
+                        st_makeline(n1.geometry, n2.geometry) AS geometry
+                    FROM webapp.runs_optimized
+                    JOIN zurich.nodes n1 ON runs_optimized.source = n1.osmid
+                    JOIN zurich.nodes n2 ON runs_optimized.target = n2.osmid
+                    WHERE id_prj = {project_id} AND id_run = {run_id}
+                ),
+                edges AS (
+                    SELECT DISTINCT source, target, distance, gradient, speed_limit
+                    FROM webapp.edges
+                    WHERE id_prj = {project_id}
+                )
+                SELECT row_number() OVER () AS edge_id,
+                    t1.id_prj,
+                    t1.id_run,
+                    t1.edge_key,
+                    t1.lanetype,
+                    t1.source,
+                    t1.target,
+                    t2.distance,
+                    t2.gradient,
+                    t2.speed_limit,
+                    t1.geometry
+                FROM run_opt t1
+                LEFT JOIN edges t2 ON t1.source = t2.source AND t1.target = t2.target;
                 GRANT ALL ON webapp.v_optimized TO postgres, selina, mbauckhage;
                 """
             )
@@ -534,26 +550,43 @@ def create_view():
             cursor = session.connection().connection.cursor()
             if layer == "v_optimized":
                 sql_statement = f"""
-                    DROP VIEW IF EXISTS webapp.v_optimized;
-                    CREATE OR REPLACE VIEW webapp.v_optimized
-                    AS
-                    SELECT
-                        ROW_NUMBER() OVER () AS edge_id,
-                        run_opt.id_prj,
-                        run_opt.id_run,
-                        run_opt.source,
-                        run_opt.target,
-                        run_opt.edge_key,
-                        run_opt.lanetype,
+                DROP VIEW IF EXISTS webapp.v_optimized;
+                CREATE OR REPLACE VIEW webapp.v_optimized
+                AS
+                WITH run_opt AS (
+                    SELECT row_number() OVER () AS edge_id,
+                        id_prj,
+                        id_run,
+                        source,
+                        target,
+                        edge_key,
+                        lanetype,
                         st_makeline(n1.geometry, n2.geometry) AS geometry
-                    FROM
-                        webapp.runs_optimized run_opt
-                    JOIN
-                        zurich.nodes n1 ON run_opt.source = n1.osmid
-                    JOIN
-                        zurich.nodes n2 ON run_opt.target = n2.osmid
-                    WHERE run_opt.id_prj = {project_id} AND run_opt.id_run = {run_id};
-                    GRANT ALL ON webapp.v_optimized TO postgres, selina, mbauckhage;"""
+                    FROM webapp.runs_optimized
+                    JOIN zurich.nodes n1 ON runs_optimized.source = n1.osmid
+                    JOIN zurich.nodes n2 ON runs_optimized.target = n2.osmid
+                    WHERE id_prj = {project_id} AND id_run = {run_id}
+                ),
+                edges AS (
+                    SELECT DISTINCT source, target, distance, gradient, speed_limit
+                    FROM webapp.edges
+                    WHERE id_prj = {project_id}
+                )
+                SELECT row_number() OVER () AS edge_id,
+                    t1.id_prj,
+                    t1.id_run,
+                    t1.edge_key,
+                    t1.lanetype,
+                    t1.source,
+                    t1.target,
+                    t2.distance,
+                    t2.gradient,
+                    t2.speed_limit,
+                    t1.geometry
+                FROM run_opt t1
+                LEFT JOIN edges t2 ON t1.source = t2.source AND t1.target = t2.target;
+                GRANT ALL ON webapp.v_optimized TO postgres, selina, mbauckhage;
+                """
                 cursor.execute(sql_statement)
                 session.commit()
             elif layer == "v_bound":
