@@ -69,6 +69,8 @@ def street_to_lane_graph(
 ):
     if "osmid" in street_graph_nodes.columns:
         street_graph_nodes.set_index("osmid", inplace=True)
+    if "u" in street_graph_edges.columns:
+        street_graph_edges.set_index(["u", "v"], inplace=True)
     # create node attributes
     if "elevation" in street_graph_nodes.columns:
         elevation = street_graph_nodes["elevation"].to_dict()
@@ -98,16 +100,20 @@ def street_to_lane_graph(
 
             # extract lane properties
             cap = CAPACITY_BY_LANE.get(lt[0], 1)
+            if u in elevation.keys() and v in elevation.keys():
+                gradient = 100 * (elevation[u] - elevation[v]) / row["length"]
+            else:
+                gradient = 0
             property_dict = {
                 "lanetype": lt[0],
                 "distance": row["length"] / 1000,
                 "capacity": cap,
-                "gradient": 100 * (elevation.get(v, 0) - elevation.get(u, 0)) / row["length"],
+                "gradient": gradient,
                 "fixed": lt in fixed_lanetypes,
                 "hierarchy": row["hierarchy"],
-                "speed_limit": row["maxspeed"]
-                if maxspeed_exists and not pd.isna(row["maxspeed"])
-                else maxspeed_fill_val,
+                "speed_limit": (
+                    row["maxspeed"] if maxspeed_exists and not pd.isna(row["maxspeed"]) else maxspeed_fill_val
+                ),
             }
             if ">" in lt or "-" in lt:
                 # add lane in this direction
