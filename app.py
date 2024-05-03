@@ -696,4 +696,4 @@ def get_degree_ratios(lane_graph, mode):
 
 if __name__ == "__main__":
     # run
-    app.run(debug=True, host="localhost", port=8989)
+    app.run(debug=True, host='0.0.0.0', port=8989)
