@@ -5,6 +5,8 @@ import pandas as pd
 import geopandas as gpd
 import networkx as nx
 
+from collections import Counter
+from osmnx.bearing import add_edge_bearings, calculate_bearing
 from sqlalchemy import create_engine
 import psycopg2
 from ebike_city_tools.utils import compute_edgedependent_bike_time, compute_car_time
@@ -130,3 +132,72 @@ def recreate_lane_graph(project_edges: pd.DataFrame, run_output: pd.DataFrame):
         create_using=nx.MultiDiGraph,
     )
     return lane_graph
+
+### complexity ###
+def get_mode_subgraph(lane_graph, mode):
+    """
+    Constructs a subgraph for one transport mode.
+    """
+    G_edges = [(s, t, k) for s, t, k, data in lane_graph.edges(keys=True, data=True) if mode in data.get('lanetype', '')]
+    G = lane_graph.edge_subgraph(G_edges)
+    
+    return G 
+
+def get_degree_ratios(lane_graph, mode):
+    """
+    Calculates different node degree ratios as a dictionery with degree as key and ratio as value.
+    A drawback is that ratios exlude degrees from the other mode dubgraph.
+    """
+    G = get_mode_subgraph(lane_graph, mode)
+    
+    d_values = dict(G.degree())
+    d_counts = Counter(d_values.values())
+    d_ratios = {degree: count / len(G.nodes()) for degree, count in d_counts.items()}
+    
+    return dict(sorted(d_ratios.items()))
+
+
+## bearing ###
+# bearing of a direct vector between OD ('as crow flies' line).
+def calculate_path_bearing(node1, node2):
+    return calculate_bearing(node1['x'], node1['y'], node2['x'], node2['y'])
+
+# individual edge deviations for path.
+def average_path_deviation(G, path):
+    path_bearing = calculate_path_bearing(G.nodes[path[0]], G.nodes[path[-1]])
+    deviations = [angle_difference(path_bearing, list(G.get_edge_data(path[i], path[i+1]).values())[0]['bearing'])
+                  for i in range(len(path) - 1)]
+    return np.mean(deviations)
+
+# When calculating the bearing difference, 
+# ensure that the result is always the smallest angle between the two bearings, 
+# which should be between 0 and 180 degrees.
+
+def angle_difference(bearing1, bearing2):
+    diff = abs(bearing1 - bearing2) % 360
+    return min(diff, 360 - diff)
+
+
+def get_network_bearings(lane_graph, mode, weight=None):
+    """
+    Calculates and returns the average deviation of all shortest path edges from the direct bearing
+    between nodes in a specified mode subgraph of a transportation network.
+    """
+    G = get_mode_subgraph(lane_graph, mode)
+
+    G = add_edge_bearings(G)  
+
+    all_pairs_sp = nx.all_pairs_dijkstra_path(G, weight=weight)
+    total_path_deviation = 0
+    path_count = 0
+                
+    for start, paths in all_pairs_sp:
+        for end, path in paths.items():
+            if start == end and len(path) <= 2:
+                continue
+            
+            average_deviation = average_path_deviation(G, path)
+            total_path_deviation += average_deviation
+            path_count += 1            
+
+    return total_path_deviation / path_count

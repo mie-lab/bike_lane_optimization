@@ -3,6 +3,7 @@ import geopandas as gpd
 import sqlalchemy
 import networkx as nx
 import pandas as pd
+import numpy as np
 from flask import Flask, jsonify, request
 from flask_cors import CORS, cross_origin  # needs to be installed via pip install flask-cors
 
@@ -27,9 +28,16 @@ from ebike_city_tools.app_utils import (
     get_expected_time,
     compute_nr_variables,
     recreate_lane_graph,
-)
+    get_mode_subgraph,
+    get_degree_ratios,
+    get_network_bearings,
+    )
 from ebike_city_tools.metrics import compute_travel_times_in_graph
 from collections import Counter
+from osmnx.bearing import add_edge_bearings, calculate_bearing
+from numpy import arccos
+from numpy.linalg import norm
+import math
 
 # Set to True if you want to use the Database - otherwise, everything will just be saved in a dictionary
 DATABASE = True
@@ -348,7 +356,7 @@ def optimize():
         )
         # RUN pareto optimization, potentially with saving the graph after each optimization step
         result_graph, pareto_df = opt.pareto(fix_multilane=FIX_MULTILANE, return_graph_at_edges=desired_edge_count)
-    print("Result graph: ", result_graph)
+    #print("Result graph: ", result_graph)
     # convert to pandas datafrme
     result_graph_edges = nx.to_pandas_edgelist(result_graph, edge_key="edge_key")[
         ["source", "target", "edge_key", "lanetype"]
@@ -534,6 +542,59 @@ def get_complexity():
         return jsonify({"error": str(e)}), 500
     
 
+@app.route("/get_network_bearing", methods=["GET"])
+def get_network_bearing():
+    try:
+        if DATABASE:
+            project_id = int(request.args.get("project_id"))
+            run_id = request.args.get("run_name")
+
+            project_edges = pd.read_sql(f"SELECT * FROM {SCHEMA}.edges WHERE id_prj = {project_id}", DATABASE_CONNECTOR)
+            project_od = pd.read_sql(f"SELECT * FROM {SCHEMA}.od WHERE id_prj = {project_id}", DATABASE_CONNECTOR)
+            run_output = pd.read_sql(f"SELECT * FROM {SCHEMA}.runs_optimized WHERE id_prj = {project_id} AND id_run = {run_id}", DATABASE_CONNECTOR)
+
+            # load nodes from database
+           # nodes_zurich = pd.read_sql(f"""
+            #    SELECT z.osmid, z.x, z.y
+             #   FROM webapp.nodes AS w
+              #  JOIN zurich.nodes AS z ON w.id_node = z.osmid
+               # WHERE w.id_prj = {project_id}
+                #""", DATABASE_CONNECTOR)
+            nodes_zurich = pd.read_sql("""SELECT osmid, x, y FROM zurich.nodes """, DATABASE_CONNECTOR) 
+  
+            
+            lane_graph = recreate_lane_graph(project_edges, run_output)
+            
+            xs = {nodes_zurich.loc[i, 'osmid']: nodes_zurich.loc[i, 'x'] for i in nodes_zurich.index}
+            nx.set_node_attributes(lane_graph, xs, 'x')
+
+            ys = {nodes_zurich.loc[i, 'osmid']: nodes_zurich.loc[i, 'y'] for i in nodes_zurich.index}
+            nx.set_node_attributes(lane_graph, ys, 'y')
+
+            lane_graph.graph['crs'] = 4326
+
+            
+             # Extract node_ids and coords
+            #node_ids = nodes_zurich['osmid'].tolist()
+            #coords = nodes_zurich[['x', 'y']].values.tolist()
+            #print(node_ids, coords)
+
+            # set attributes
+            # attrs = {node_ids[i]: {"loc": coords[i]} for i in range(len(node_ids))}
+            #print(attrs)
+           #nx.set_node_attributes(project_edges, attrs)
+
+
+            bike_network_bearings = get_network_bearings(lane_graph, 'P', 'distance')
+            car_network_bearings = get_network_bearings(lane_graph, 'M', 'distance')
+
+            return (jsonify({"bike_network_bearings": bike_network_bearings, "car_network_bearings": car_network_bearings}), 200)
+        else:
+            return jsonify({"error": "Database not configured"}), 500
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    
+
 
 @app.route("/get_projects", methods=["GET"])
 def get_projects():
@@ -668,30 +729,6 @@ def create_view():
     else:
         return jsonify({"message": "Database is not enabled"}), 400
     
-
-## app utils
-
-def get_mode_subgraph(lane_graph, mode):
-    """
-    Constructs a subgraph for one transport mode.
-    """
-    G_edges = [(s, t, k) for s, t, k, data in lane_graph.edges(keys=True, data=True) if mode in data.get('lanetype', '')]
-    G = lane_graph.edge_subgraph(G_edges)
-    
-    return G 
-
-def get_degree_ratios(lane_graph, mode):
-    """
-    Calculates different node degree ratios as a dictionery with degree as key and ratio as value.
-    A drawback is that ratios exlude degrees from the other mode dubgraph.
-    """
-    G = get_mode_subgraph(lane_graph, mode)
-    
-    d_values = dict(G.degree())
-    d_counts = Counter(d_values.values())
-    d_ratios = {degree: count / len(G.nodes()) for degree, count in d_counts.items()}
-    
-    return dict(sorted(d_ratios.items()))
 
 
 if __name__ == "__main__":
