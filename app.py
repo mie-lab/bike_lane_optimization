@@ -554,15 +554,13 @@ def get_network_bearing():
             run_output = pd.read_sql(f"SELECT * FROM {SCHEMA}.runs_optimized WHERE id_prj = {project_id} AND id_run = {run_id}", DATABASE_CONNECTOR)
 
             # load nodes from database
-           # nodes_zurich = pd.read_sql(f"""
-            #    SELECT z.osmid, z.x, z.y
-             #   FROM webapp.nodes AS w
-              #  JOIN zurich.nodes AS z ON w.id_node = z.osmid
-               # WHERE w.id_prj = {project_id}
-                #""", DATABASE_CONNECTOR)
-            nodes_zurich = pd.read_sql("""SELECT osmid, x, y FROM zurich.nodes """, DATABASE_CONNECTOR) 
-  
-            
+            nodes_zurich = pd.read_sql(f"""
+                SELECT z.osmid, z.x, z.y
+                FROM zurich.nodes AS z
+                JOIN  webapp.edges AS w ON w.source = z.osmid OR w.target = z.osmid
+                WHERE w.id_prj = {project_id}
+                """, DATABASE_CONNECTOR)
+
             lane_graph = recreate_lane_graph(project_edges, run_output)
             
             xs = {nodes_zurich.loc[i, 'osmid']: nodes_zurich.loc[i, 'x'] for i in nodes_zurich.index}
@@ -572,18 +570,6 @@ def get_network_bearing():
             nx.set_node_attributes(lane_graph, ys, 'y')
 
             lane_graph.graph['crs'] = 4326
-
-            
-             # Extract node_ids and coords
-            #node_ids = nodes_zurich['osmid'].tolist()
-            #coords = nodes_zurich[['x', 'y']].values.tolist()
-            #print(node_ids, coords)
-
-            # set attributes
-            # attrs = {node_ids[i]: {"loc": coords[i]} for i in range(len(node_ids))}
-            #print(attrs)
-           #nx.set_node_attributes(project_edges, attrs)
-
 
             bike_network_bearings = get_network_bearings(lane_graph, 'P', 'distance')
             car_network_bearings = get_network_bearings(lane_graph, 'M', 'distance')
