@@ -3,6 +3,7 @@ import geopandas as gpd
 import sqlalchemy
 import networkx as nx
 import pandas as pd
+import numpy as np
 from flask import Flask, jsonify, request
 from flask_cors import CORS, cross_origin  # needs to be installed via pip install flask-cors
 
@@ -27,8 +28,16 @@ from ebike_city_tools.app_utils import (
     get_expected_time,
     compute_nr_variables,
     recreate_lane_graph,
-)
+    get_mode_subgraph,
+    get_degree_ratios,
+    get_network_bearings,
+    )
 from ebike_city_tools.metrics import compute_travel_times_in_graph
+from collections import Counter
+from osmnx.bearing import add_edge_bearings, calculate_bearing
+from numpy import arccos
+from numpy.linalg import norm
+import math
 
 # Set to True if you want to use the Database - otherwise, everything will just be saved in a dictionary
 DATABASE = True
@@ -221,6 +230,22 @@ def generate_input_graph():
     return (jsonify({"project_id": project_id, "variables": nr_variables, "expected_runtime": runtime_min}), 200)
 
 
+@app.route("/get_new_run_id", methods=["GET"])
+def get_new_run_id():
+    project_id = int(request.args.get("project_id"))
+    if DATABASE:
+        try:
+            run_id = pd.read_sql(f"SELECT MAX(id_run) FROM {SCHEMA}.runs WHERE id_prj = {project_id}", DATABASE_CONNECTOR)
+            if run_id.empty or run_id.iloc[0][0] is None:
+                run_id = 1
+            else:
+                run_id = int(run_id.iloc[0][0]) + 1
+            return jsonify({"run_id": run_id}), 200
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+    else:
+        return jsonify({"error": "Database not configured"}), 500
+
 @app.route("/optimize", methods=["GET", "POST"])
 def optimize():
     """
@@ -242,7 +267,8 @@ def optimize():
     algorithm = request.args.get("algorithm", "optimize")
     ratio_bike_edges = float(request.args.get("bike_ratio", "0.4"))
     optimize_every_x = float(request.args.get("optimize_frequency", "30"))
-    car_weight = float(request.args.get("car_weight", "2"))
+
+    car_weight = float(request.args.get("car_weight", "0.7"))
     shared_lane_factor = float(request.args.get("bike_safety_penalty", "2"))
     
     
@@ -330,7 +356,7 @@ def optimize():
         )
         # RUN pareto optimization, potentially with saving the graph after each optimization step
         result_graph, pareto_df = opt.pareto(fix_multilane=FIX_MULTILANE, return_graph_at_edges=desired_edge_count)
-    print("Result graph: ", result_graph)
+    #print("Result graph: ", result_graph)
     # convert to pandas datafrme
     result_graph_edges = nx.to_pandas_edgelist(result_graph, edge_key="edge_key")[
         ["source", "target", "edge_key", "lanetype"]
@@ -369,22 +395,38 @@ def optimize():
                 DROP VIEW IF EXISTS webapp.v_optimized;
                 CREATE OR REPLACE VIEW webapp.v_optimized
                 AS
-                SELECT
-                    ROW_NUMBER() OVER () AS edge_id,
-                    run_opt.id_prj,
-                    run_opt.id_run,
-                    run_opt.source,
-                    run_opt.target,
-                    run_opt.edge_key,
-                    run_opt.lanetype,
-                    st_makeline(n1.geometry, n2.geometry) AS geometry
-                FROM
-                    webapp.runs_optimized run_opt
-                JOIN
-                    zurich.nodes n1 ON run_opt.source = n1.osmid
-                JOIN
-                    zurich.nodes n2 ON run_opt.target = n2.osmid
-                WHERE run_opt.id_prj = {project_id} AND run_opt.id_run = {run_id};
+                WITH run_opt AS (
+                    SELECT row_number() OVER () AS edge_id,
+                        id_prj,
+                        id_run,
+                        source,
+                        target,
+                        edge_key,
+                        lanetype,
+                        st_makeline(n1.geometry, n2.geometry) AS geometry
+                    FROM webapp.runs_optimized
+                    JOIN zurich.nodes n1 ON runs_optimized.source = n1.osmid
+                    JOIN zurich.nodes n2 ON runs_optimized.target = n2.osmid
+                    WHERE id_prj = {project_id} AND id_run = {run_id}
+                ),
+                edges AS (
+                    SELECT DISTINCT source, target, distance, gradient, speed_limit
+                    FROM webapp.edges
+                    WHERE id_prj = {project_id}
+                )
+                SELECT row_number() OVER () AS edge_id,
+                    t1.id_prj,
+                    t1.id_run,
+                    t1.edge_key,
+                    t1.lanetype,
+                    t1.source,
+                    t1.target,
+                    t2.distance,
+                    t2.gradient,
+                    t2.speed_limit,
+                    t1.geometry
+                FROM run_opt t1
+                LEFT JOIN edges t2 ON t1.source = t2.source AND t1.target = t2.target;
                 GRANT ALL ON webapp.v_optimized TO postgres, selina, mbauckhage;
                 """
             )
@@ -406,12 +448,32 @@ def optimize():
         jsonify(
             {
                 "project_id": project_id,
-                "run_name": run_id,
+                "run_id": run_id,
+                "run_name": run_name,
                 "bike_edges": len(result_graph_edges[result_graph_edges["lanetype"] == "P"]),
             }
         ),
         200,
     )
+
+
+@app.route("/get_distance_per_lane_type", methods=["GET"])
+def get_distance_per_lane_type():
+    try:
+        if DATABASE:
+            project_id = int(request.args.get("project_id"))
+            run_id = request.args.get("run_name")
+
+            bike_distance = pd.read_sql(f"SELECT SUM(edges.distance) AS total_bike_lane_distance FROM {SCHEMA}.runs_optimized JOIN {SCHEMA}.edges ON runs_optimized.source = edges.source AND runs_optimized.target = edges.target WHERE runs_optimized.lanetype = 'P' AND runs_optimized.id_run ={run_id} AND runs_optimized.id_prj = {project_id}", DATABASE_CONNECTOR)
+            car_distance = pd.read_sql(f"SELECT SUM(edges.distance) AS total_car_lane_distance FROM {SCHEMA}.runs_optimized JOIN {SCHEMA}.edges ON runs_optimized.source = edges.source AND runs_optimized.target = edges.target WHERE runs_optimized.lanetype = 'M>' AND runs_optimized.id_run ={run_id} AND runs_optimized.id_prj = {project_id}", DATABASE_CONNECTOR)
+            bike_distance_json = bike_distance.to_dict(orient="records")
+            car_distance_json = car_distance.to_dict(orient="records")
+
+            return (jsonify({"distance_bike": bike_distance_json, "distance_car": car_distance_json}), 200)
+        else:
+            return jsonify({"error": "Database not configured"}), 500
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/eval_travel_time", methods=["GET"])
@@ -453,13 +515,78 @@ def get_pareto():
             return jsonify({"error": "Database not configured"}), 500
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+    
+    
+@app.route("/get_complexity", methods=["GET"])
+def get_complexity():
+    try:
+        if DATABASE:
+            project_id = int(request.args.get("project_id"))
+            run_id = request.args.get("run_name")
+
+            project_edges = pd.read_sql(f"SELECT * FROM {SCHEMA}.edges WHERE id_prj = {project_id}", DATABASE_CONNECTOR)
+            project_od = pd.read_sql(f"SELECT * FROM {SCHEMA}.od WHERE id_prj = {project_id}", DATABASE_CONNECTOR)
+            run_output = pd.read_sql(f"SELECT * FROM {SCHEMA}.runs_optimized WHERE id_prj = {project_id} AND id_run = {run_id}", DATABASE_CONNECTOR)
+
+            lane_graph = recreate_lane_graph(project_edges, run_output)
+
+            bike_degree_ratios = get_degree_ratios(lane_graph, 'P')
+            car_degree_ratios = get_degree_ratios(lane_graph, 'M')
+
+
+
+            return (jsonify({"bike_degree_ratio": bike_degree_ratios, "car_degree_ratios": car_degree_ratios}), 200)
+        else:
+            return jsonify({"error": "Database not configured"}), 500
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    
+
+@app.route("/get_network_bearing", methods=["GET"])
+def get_network_bearing():
+    try:
+        if DATABASE:
+            project_id = int(request.args.get("project_id"))
+            run_id = request.args.get("run_name")
+
+            project_edges = pd.read_sql(f"SELECT * FROM {SCHEMA}.edges WHERE id_prj = {project_id}", DATABASE_CONNECTOR)
+            project_od = pd.read_sql(f"SELECT * FROM {SCHEMA}.od WHERE id_prj = {project_id}", DATABASE_CONNECTOR)
+            run_output = pd.read_sql(f"SELECT * FROM {SCHEMA}.runs_optimized WHERE id_prj = {project_id} AND id_run = {run_id}", DATABASE_CONNECTOR)
+
+            # load nodes from database
+            nodes_zurich = pd.read_sql(f"""
+                SELECT z.osmid, z.x, z.y
+                FROM zurich.nodes AS z
+                JOIN  webapp.edges AS w ON w.source = z.osmid OR w.target = z.osmid
+                WHERE w.id_prj = {project_id}
+                """, DATABASE_CONNECTOR)
+
+            lane_graph = recreate_lane_graph(project_edges, run_output)
+            
+            xs = {nodes_zurich.loc[i, 'osmid']: nodes_zurich.loc[i, 'x'] for i in nodes_zurich.index}
+            nx.set_node_attributes(lane_graph, xs, 'x')
+
+            ys = {nodes_zurich.loc[i, 'osmid']: nodes_zurich.loc[i, 'y'] for i in nodes_zurich.index}
+            nx.set_node_attributes(lane_graph, ys, 'y')
+
+            lane_graph.graph['crs'] = 4326
+
+            bike_network_bearings = get_network_bearings(lane_graph, 'P', 'distance')
+            car_network_bearings = get_network_bearings(lane_graph, 'M', 'distance')
+
+            return (jsonify({"bike_network_bearings": bike_network_bearings, "car_network_bearings": car_network_bearings}), 200)
+        else:
+            return jsonify({"error": "Database not configured"}), 500
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    
 
 
 @app.route("/get_projects", methods=["GET"])
 def get_projects():
     try:
         if DATABASE:
-            projects = pd.read_sql("SELECT id, prj_name FROM webapp.projects", DATABASE_CONNECTOR)
+            projects = pd.read_sql("SELECT id, prj_name, created FROM webapp.projects", DATABASE_CONNECTOR)
             projects_json = projects.to_dict(orient="records")
             return jsonify({"projects": projects_json}), 200
         else:
@@ -497,26 +624,43 @@ def create_view():
             cursor = session.connection().connection.cursor()
             if layer == "v_optimized":
                 sql_statement = f"""
-                    DROP VIEW IF EXISTS webapp.v_optimized;
-                    CREATE OR REPLACE VIEW webapp.v_optimized
-                    AS
-                    SELECT
-                        ROW_NUMBER() OVER () AS edge_id,
-                        run_opt.id_prj,
-                        run_opt.id_run,
-                        run_opt.source,
-                        run_opt.target,
-                        run_opt.edge_key,
-                        run_opt.lanetype,
+                DROP VIEW IF EXISTS webapp.v_optimized;
+                CREATE OR REPLACE VIEW webapp.v_optimized
+                AS
+                WITH run_opt AS (
+                    SELECT row_number() OVER () AS edge_id,
+                        id_prj,
+                        id_run,
+                        source,
+                        target,
+                        edge_key,
+                        lanetype,
                         st_makeline(n1.geometry, n2.geometry) AS geometry
-                    FROM
-                        webapp.runs_optimized run_opt
-                    JOIN
-                        zurich.nodes n1 ON run_opt.source = n1.osmid
-                    JOIN
-                        zurich.nodes n2 ON run_opt.target = n2.osmid
-                    WHERE run_opt.id_prj = {project_id} AND run_opt.id_run = {run_id};
-                    GRANT ALL ON webapp.v_optimized TO postgres, selina, mbauckhage;"""
+                    FROM webapp.runs_optimized
+                    JOIN zurich.nodes n1 ON runs_optimized.source = n1.osmid
+                    JOIN zurich.nodes n2 ON runs_optimized.target = n2.osmid
+                    WHERE id_prj = {project_id} AND id_run = {run_id}
+                ),
+                edges AS (
+                    SELECT DISTINCT source, target, distance, gradient, speed_limit
+                    FROM webapp.edges
+                    WHERE id_prj = {project_id}
+                )
+                SELECT row_number() OVER () AS edge_id,
+                    t1.id_prj,
+                    t1.id_run,
+                    t1.edge_key,
+                    t1.lanetype,
+                    t1.source,
+                    t1.target,
+                    t2.distance,
+                    t2.gradient,
+                    t2.speed_limit,
+                    t1.geometry
+                FROM run_opt t1
+                LEFT JOIN edges t2 ON t1.source = t2.source AND t1.target = t2.target;
+                GRANT ALL ON webapp.v_optimized TO postgres, selina, mbauckhage;
+                """
                 cursor.execute(sql_statement)
                 session.commit()
             elif layer == "v_bound":
@@ -535,16 +679,15 @@ def create_view():
                     FROM webapp.bounds
                     WHERE bounds.id_prj = {project_id}
                     GROUP BY id, id_prj;
-                    GRANT ALL ON webapp.v_bound TO postgres, selina, mbauckhage;"""
+                    GRANT ALL ON webapp.v_bound TO postgres, selina, mbauckhage;
                     
-                )
-                session.commit()
-                cursor.execute(
-                    f"""
                     SELECT bbox_east, bbox_south, bbox_west, bbox_north
                     FROM webapp.v_bound
                     WHERE id_prj = {project_id};"""
+                    
                 )
+                
+                session.commit()
                 bbox_result = cursor.fetchone()
                 bbox_params = {
                     "bbox_east": bbox_result[0],
@@ -552,7 +695,7 @@ def create_view():
                     "bbox_west": bbox_result[2],
                     "bbox_north": bbox_result[3]
                 }
-                session.commit()
+                
         except Exception as e:
             if session: session.rollback()
             return (
@@ -571,7 +714,9 @@ def create_view():
                 return jsonify({"message": f"View created successfully"}), 200
     else:
         return jsonify({"message": "Database is not enabled"}), 400
+    
+
 
 if __name__ == "__main__":
     # run
-    app.run(debug=True, host="localhost", port=8989)
+    app.run(debug=True, host='0.0.0.0', port=8989)
