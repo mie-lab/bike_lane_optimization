@@ -93,6 +93,7 @@ def recreate_lane_graph(project_edges: pd.DataFrame, run_output: pd.DataFrame):
     project_edges["edge_key"] = project_edges["edge_key"].astype(str)
     if "source" in project_edges or "s" in project_edges:
         project_edges.set_index(["source", "target", "edge_key"], inplace=True)
+    project_edges.sort_index(inplace=True)
 
     # add additional edges for new lanes (reversed bike lanes in the other direction)
     reversed_bike_edges = run_output[(run_output["lanetype"] == "P") & (run_output["edge_key"].str.contains("revbike"))]
