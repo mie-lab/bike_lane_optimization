@@ -279,6 +279,7 @@ def optimize():
             
             
             edges = edges[["source", "target", "edge_key", "fixed","lanetype","distance","gradient","speed_limit"]]
+            edges["capacity"] = 1 # since it's a lane graph with one edge per lane, every edge has capacity 1
             od.rename(columns={'source': 's', 'target': 't'}, inplace=True)
             od = od[["s", "t", "trips"]]
             
