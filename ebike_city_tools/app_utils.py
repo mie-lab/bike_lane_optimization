@@ -10,6 +10,8 @@ from osmnx.bearing import add_edge_bearings, calculate_bearing
 from sqlalchemy import create_engine
 import psycopg2
 from ebike_city_tools.utils import compute_edgedependent_bike_time, compute_car_time
+from ebike_city_tools.graph_utils import clean_street_graph_directions, clean_street_graph_multiedges
+from ebike_city_tools.od_utils import match_od_with_nodes
 
 CRS = 2056
 
@@ -202,3 +204,32 @@ def get_network_bearings(lane_graph, mode, weight=None):
             path_count += 1            
 
     return total_path_deviation / path_count
+
+
+def zurich_to_database(
+    graph_path="street_network_data/zurich/full_geometries",
+    od_coord_path="street_network_data/zurich/raw_od_matrix/od_whole_city.csv",
+    schema="zurich",
+    crs=2056,
+    dblogin_file="dblogin.json",
+):
+
+    engine = get_database_connector(dblogin_file)
+
+    # load nodes
+    zurich_nodes = gpd.read_file(os.path.join(graph_path, "street_graph_nodes.gpkg")).to_crs(crs)
+
+    # load prebuilt OD matrix
+    od_whole_zurich_nodes = match_od_with_nodes(od_coord_path, zurich_nodes)
+
+    zurich_edges = gpd.read_file(os.path.join(graph_path, "street_graph_edges.gpkg")).to_crs(crs)
+    # some preprocessing
+    zurich_edges = clean_street_graph_multiedges(zurich_edges)
+    zurich_edges = clean_street_graph_directions(zurich_edges)
+
+    print(len(od_whole_zurich_nodes), len(zurich_edges), len(zurich_nodes))
+
+    # write everything to db
+    zurich_nodes.to_postgis("nodes_full", engine, schema=schema, if_exists="replace", index=True)
+    zurich_edges.to_postgis("edges_full", engine, schema=schema, if_exists="replace", index=True)
+    od_whole_zurich_nodes.to_sql("od_matrix_full", engine, schema=schema, if_exists="replace", index=False)
