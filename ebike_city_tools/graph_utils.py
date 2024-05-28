@@ -93,6 +93,8 @@ def street_to_lane_graph(
     lane_graph_rows = []
     for (u, v), row in street_graph_edges.iterrows():
         #     print("---", u,v, row["ln_desc"])
+        if row["ln_desc"] is None:
+            continue
         for lt in row["ln_desc"].split(" | "):
             if lt not in include_lanetypes:
                 continue

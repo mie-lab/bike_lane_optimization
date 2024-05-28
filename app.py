@@ -54,6 +54,7 @@ CRS = 2056
 FLOW_CONSTANT = 1  # how much flow to send through a path
 SP_METHOD = "od"
 WEIGHT_OD_FLOW = False
+FULL_GRAPH = "_full" # set to "" to use the version with simplified geometries
 maxspeed_fill_val = 50
 include_lanetypes = ["H>", "H<", "M>", "M<", "M-"]
 fixed_lanetypes = ["H>", "<H"]
@@ -69,17 +70,17 @@ CORS(app, origins=["*", "null"])  # allowing any origin as well as localhost (nu
 # load main nodes and edges that will be used for any graph
 if DATABASE:
     DATABASE_CONNECTOR = get_database_connector(DB_LOGIN_PATH)
-    zurich_edges = gpd.read_postgis("SELECT * FROM zurich.edges", DATABASE_CONNECTOR, geom_col="geometry").set_index(
+    zurich_edges = gpd.read_postgis("SELECT * FROM zurich.edges"+FULL_GRAPH, DATABASE_CONNECTOR, geom_col="geometry").set_index(
         ["u", "v"]
     )
     zurich_nodes = gpd.read_postgis(
-        "SELECT * FROM zurich.nodes", DATABASE_CONNECTOR, geom_col="geometry", index_col="osmid"
+        "SELECT * FROM zurich.nodes"+FULL_GRAPH, DATABASE_CONNECTOR, geom_col="geometry", index_col="osmid"
     )
     print("Loaded nodes and edges for Zurich from server", len(zurich_nodes), len(zurich_edges))
     trips_microcensus = gpd.read_postgis(
         "SELECT * FROM zurich.trips_microcensus", DATABASE_CONNECTOR, geom_col="geometry"
     )
-    od_zurich = pd.read_sql("SELECT * FROM zurich.od_matrix", DATABASE_CONNECTOR)
+    od_zurich = pd.read_sql("SELECT * FROM zurich.od_matrix"+FULL_GRAPH, DATABASE_CONNECTOR)
     print("Loaded OD matrix for Zurich", len(od_zurich))
 else:
     zurich_nodes = gpd.read_file(os.path.join(PATH_DATA, "street_graph_nodes.gpkg")).to_crs(CRS).set_index("osmid")
