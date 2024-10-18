@@ -6,7 +6,7 @@ import osmnx
 import time
 import networkx as nx
 from multiprocessing import Pool, cpu_count
-from ebike_city_tools.optimize.wrapper import lane_optimization, lane_optimization_snman
+from ebike_city_tools.optimize.wrapper import lane_optimization, optimization_with_snman
 from ebike_city_tools.graph_utils import (
     load_nodes_edges_dataframes,
     street_to_lane_graph,
@@ -35,30 +35,26 @@ def snman_rebuilding(
     data_directory: str,
     output_path: str,
     whole_city_od_path: str,  # TODO: would need to pass it to rebuild_regions function as an argument for the LP
-    perimeter="zurich",
 ):
-    inputs_path = os.path.join(data_directory, "inputs")
-    process_path = os.path.join(data_directory, "process", perimeter)
-    export_path = os.path.join(data_directory, "outputs", perimeter)
 
     print("Load street graph")
     G = snman.io.load_street_graph(
-        os.path.join(process_path, "street_graph_edges.gpkg"),
-        os.path.join(process_path, "street_graph_nodes.gpkg"),
+        os.path.join(data_directory, "street_graph_edges.gpkg"),
+        os.path.join(data_directory, "street_graph_nodes.gpkg"),
         crs=CRS_internal,
     )
 
     print("Load rebuilding regions")
     # Polygons that define which streets will be reorganized
     rebuilding_regions_gdf = snman.io.load_rebuilding_regions(
-        os.path.join(inputs_path, "rebuilding_regions", "rebuilding_regions.gpkg"), crs=CRS_internal
+        os.path.join(data_directory, "rebuilding_regions.gpkg"), crs=CRS_internal
     )
 
     print("Rebuild regions")
-    snman.rebuilding.rebuild_regions(
+    snman.rebuilding.multi_rebuild_regions(
         G,
         rebuilding_regions_gdf,
-        rebuilding_function=lane_optimization_snman,
+        rebuilding_function=optimization_with_snman,
         verbose=True,
         export_G=output_path,
     )
@@ -321,7 +317,7 @@ if __name__ == "__main__":
     output_dir = args.out_dir
     os.makedirs(output_dir, exist_ok=True)
 
-    # snman_rebuilding(data_dir, output_dir)
+    # snman_rebuilding(data_dir, output_dir, args.od_path)
 
     # rebuild_street_network(data_dir, output_dir, args.od_path)
 

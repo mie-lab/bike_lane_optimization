@@ -13,7 +13,7 @@ import shapely.ops
 from ebike_city_tools.graph_utils import street_to_lane_graph
 from ebike_city_tools.app_utils import get_database_connector
 
-DATABASE_CONNECTOR = get_database_connector()
+DATABASE_CONNECTOR = get_database_connector("../../dblogin_mielab.json")
 
 
 def join_with_geometry(edges, edges_geom):
@@ -89,6 +89,8 @@ def whole_city_graph_to_postgis(
     print("lane types in lane graph", lane_gdf["lanetype"].unique())
     lane_with_geometry = join_with_geometry(lane_gdf, rebuild_output[["u", "v", "geometry"]])
 
+    lane_with_geometry["lanetype"] = lane_with_geometry["lanetype"].map({"P": "P", "M>": "M", "M": "M", "H": "M"})
+
     # group by
     group_attrs = ["source", "target", "lanetype"]
     agg_dict = {attr: "first" for attr in lane_with_geometry.columns if attr not in group_attrs}
@@ -97,12 +99,12 @@ def whole_city_graph_to_postgis(
         lane_with_geometry.groupby(group_attrs).agg(agg_dict).rename({"lanetype": "count"}, axis=1).reset_index()
     )
     save_graph = gpd.GeoDataFrame(save_graph, geometry="geometry", crs=rebuild_output.crs)
+    # add flag regarding double lanes
+    save_graph = add_single_lane_flag(save_graph)
 
     print(save_graph)
     # to postgis
-    lane_with_geometry.to_postgis(
-        "zurich_rebuild", DATABASE_CONNECTOR, schema="graphs", if_exists="replace", index=False
-    )
+    save_graph.to_postgis("zurich_rebuild", DATABASE_CONNECTOR, schema="graphs", if_exists="replace", index=False)
     print("Written lane graph to postgis", len(lane_with_geometry))
 
 
@@ -199,4 +201,5 @@ def write_all_graphs_to_postgis():
 
 
 if __name__ == "__main__":
-    write_all_graphs_to_postgis()
+    whole_city_graph_to_postgis()
+    # write_all_graphs_to_postgis()

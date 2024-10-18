@@ -139,6 +139,14 @@ if __name__ == "__main__":
         # compute the paretor frontier
         tic = time.time()
 
+        ############ TEST CASE SNMAN ##############
+        # print("HERE")
+        # from ebike_city_tools.optimize.wrapper import optimization_with_snman
+
+        # graph_out = optimization_with_snman(G_lane, return_ranking=True)
+        # print(graph_out)
+        # exit()
+
         # initialize Pareto optimizer
         opt = ParetoRoundOptimize(
             G_lane.copy(),

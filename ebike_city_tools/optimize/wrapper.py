@@ -11,7 +11,7 @@ from ebike_city_tools.graph_utils import (
     nodes_to_geodataframe,
 )
 from ebike_city_tools.optimize.round_optimized import ParetoRoundOptimize
-from snman import distribution, street_graph, graph, io, merge_edges, lane_graph, rebuilding
+from snman import distribution, street_graph, graph, io, merge_edges, lane_graph
 from snman.constants import (
     KEY_LANES_DESCRIPTION,
     KEY_LANES_DESCRIPTION_AFTER,
@@ -24,11 +24,11 @@ from snman.constants import (
 BASE_OPTIMIZE_PARAMS = {
     "bike_flow_constant": 1,
     "car_flow_constant": 1,
-    "optimize_every_x": 200,
+    "optimize_every_x": np.inf,  # how often to re-optimize
     "valid_edges_k": 0,
-    "car_weight": 2,
-    "sp_method": "od",
-    "shared_lane_factor": 2,
+    "car_weight": 2,  # weighting of the car travel time in comparison to the bike travel time
+    "sp_method": "od",  # if "od", the travel times are just computed over the OD-pairs. Otherwise over all edges
+    "shared_lane_factor": 2,  # how much higher the perceived travel bike travel time is if cycling on car lanes (*2)
     "weight_od_flow": False,
 }
 IGNORE_FIXED = False
@@ -76,6 +76,9 @@ def adapt_edge_attributes(L: nx.MultiDiGraph, ignore_fixed=False):
 
     # rename to distance
     distances = nx.get_edge_attributes(L, "length")
+    if len(distances) == 0:
+        distances = nx.get_edge_attributes(L, "distance")
+    assert len(distances) > 0, "No edge length attribute found"
     distances = {k: v / 1000 for k, v in distances.items()}  # transform to km
     nx.set_edge_attributes(L, distances, "distance")
 
@@ -84,7 +87,7 @@ def adapt_edge_attributes(L: nx.MultiDiGraph, ignore_fixed=False):
 
     # add capacity and gradient attribute
     elevation_dict = nx.get_node_attributes(L, "elevation")  # can be empty, than flat assumed
-    length_dict = nx.get_edge_attributes(L, "length")
+    length_dict = nx.get_edge_attributes(L, "distance")
     (gradient_attr, capacity_attr) = ({}, {})
     for u, v, k, d in L.edges(data=True, keys=True):
         e = (u, v, k)  # returning u, v, key, data
@@ -113,6 +116,7 @@ def lane_optimization(
     edge_fraction: float = 0.4,
     optimize_params: dict = {},
     fix_multilane: bool = True,
+    return_ranking: bool = False,
 ) -> nx.MultiDiGraph:
     """Takes a lane graph from the city of Zurich, creates the OD matrix, and runs optimization"""
     # optimize params are base params but updated:
@@ -132,35 +136,50 @@ def lane_optimization(
     print(f"Optimizing lane graph, {G_lane.number_of_edges()} edges and {G_lane.number_of_nodes()} nodes")
     print(f"with {len(od)} OD pairs and with parametrs", optimize_params)
 
-    # run Pareto frontier
+    # initialize optimization algorithm
     opt = ParetoRoundOptimize(G_lane.copy(), od.copy(), **optimize_params)
-    optimized_G_lane = opt.allocate_x_bike_lanes(fraction_bike_lanes=edge_fraction, fix_multilane=fix_multilane)
-    return optimized_G_lane
+    # run optimization algorithm
+    if return_ranking:
+        # TODO: can put all edges into this dataframe that are fixed as CAR lanes
+        fixed_capacities = pd.DataFrame(columns=["Edge", "u_b(e)", "u_c(e)", "capacity"])
+        optimized_ranking = opt.optimize(fixed_capacities=fixed_capacities)
+        return optimized_ranking
+    else:
+        optimized_G_lane = opt.allocate_x_bike_lanes(fraction_bike_lanes=edge_fraction, fix_multilane=fix_multilane)
+        return optimized_G_lane
 
 
-def lane_optimization_snman(
+def optimization_with_snman(
     L,
-    L_existing=None,
-    street_graph=None,
-    width_attribute=None,
     od_df_path="../street_network_data/zurich/raw_od_matrix/od_whole_city.csv",
     edge_fraction=0.4,
     optimize_params=BASE_OPTIMIZE_PARAMS,
-    verbose=True,
     crs=2056,
+    return_ranking=True,
+    return_only_car_graph=False,
+    **kwargs,
 ):
     """
     Optimizes bike lane allocation with LP approach - to be incorporated in SNMan
     Inputs:
-        L: nx.MultiDiGraph, input graph with one edge per lane
-        od_df: pd.DataFrame, dataframe with OD pairs (must have columns named 's' and 't')
-        edge_fraction: Fraction of edges that should be eliminated (= converted to bike lanes)
+        L (nx.MultiDiGraph): input graph with one edge per lane
+        od_df_path (str): with OD pairs (must have columns named 's' and 't')
+        edge_fraction (float): Fraction of edges that should be eliminated (= converted to bike lanes)
+        optimize_params (dict): parameters for the optimization algorithm, see above for hard-coded defaults
     Returns:
-        L_optimized: nx.MultiDiGraph, graph where certain car lanes were deleted (the ones that will be bike lanes)
-        and where the car lane directions are optimized
+        if return_ranking:
+            optimized_ranking: pd.DataFrame, ranking of edges by their optimized bike lane capacity (per street!)
+        else:
+            L_optimized: nx.MultiDiGraph, graph where certain car lanes were deleted (the ones that will be bike lanes)
+            and where the car lane directions are optimized
+
+    NOTE:
+    * The algorithm takes the lane graph and assumes that any lane can be a bike lane or a car lane
+            (except for the ones that are fixed)
     """
     # add some edge attributes that we need for the optimization (e.g. slope)
     G_lane = adapt_edge_attributes(L)
+    # remove self-loops
     G_lane.remove_edges_from(nx.selfloop_edges(G_lane))
 
     # make OD matrix
@@ -171,13 +190,22 @@ def lane_optimization_snman(
         od_df = None
         warnings.warn("Attention: The path to a city-wide OD-matrix does not exist, so we are using a random OD")
 
-    new_lane_graph = lane_optimization(
-        G_lane, od_df=od_df, edge_fraction=edge_fraction, optimize_params=optimize_params
+    optimization_output = lane_optimization(
+        G_lane, od_df=od_df, edge_fraction=edge_fraction, optimize_params=optimize_params, return_ranking=return_ranking
     )
 
-    # return only the car lanes
-    G_filtered = filter_by_attribute(new_lane_graph, "lanetype", "M>")
-    print(G_filtered.number_of_edges(), G_filtered.number_of_nodes())
+    # return ranking of lanes
+    if return_ranking:
+        return optimization_output.rename(
+            {"u_b(e)": "bike_capacity_optimized", "u_c(e)": "car_capacity_optimized"}, axis=1
+        )
+
+    # return graph
+    if return_only_car_graph:
+        G_filtered = filter_by_attribute(optimization_output, "lanetype", "M>")
+        print(G_filtered.number_of_edges(), G_filtered.number_of_nodes())
+    else:
+        G_filtered = optimization_output
 
     # delete loc
     remove_node_attribute(G_filtered, "loc")
