@@ -11,14 +11,14 @@ from ebike_city_tools.synthetic import random_lane_graph
 
 OUT_PATH = "outputs"
 os.makedirs(OUT_PATH, exist_ok=True)
-NR_ITERS = 2
+NR_ITERS = 1
 
 np.random.seed(1)
 
 if __name__ == "__main__":
     res_df = []
-    for desired_variable in np.arange(100000, 3200000, 300000):
-        for size in [100, 150, 200, 250, 300, 350, 400]:
+    for desired_variable in np.arange(450000, 850000, 50000):
+        for size in [80, 100, 120]:
             # test for several iterations because randomized
             for i in range(NR_ITERS):
                 G_lane = random_lane_graph(size)
@@ -35,9 +35,9 @@ if __name__ == "__main__":
                 print("planned od size", int(round(od_size)), "actual od size", len(od))
 
                 tic = time.time()
-                new_ip = define_IP(G, cap_factor=1, od_df=od)
+                new_ip = define_IP(G, cap_factor=1, od_df=od, integer_problem=True)  # TODO
                 toc = time.time()
-                new_ip.optimize()
+                new_ip.optimize(max_seconds=7200)
                 toc_finished = time.time()
                 time_init = toc - tic
                 time_optim = toc_finished - toc
@@ -67,4 +67,4 @@ if __name__ == "__main__":
                 print(res_df[-1])
                 print("----------")
             # save updated df in every iteration
-            pd.DataFrame(res_df).to_csv(os.path.join(OUT_PATH, "runtime.csv"), index=False)
+            pd.DataFrame(res_df).to_csv(os.path.join(OUT_PATH, "runtime_integer_rebuttal.csv"), index=False)
