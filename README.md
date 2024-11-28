@@ -1,9 +1,16 @@
-# Bike lane optimization
+# Bike network planning in limited urban space
 
-Tools for evaluating street networks with radical redesign by splitting into bike and car lanes
+This code accompanies our paper `Bike Network Planning in Limited Urban Space`, accepted to Transportation Research Part B. 
+
+We developed an optimization approach for placing bike lanes in cities, with the goal of minimizing the impact on other transport modes. We propose a linear program where the objective function is a weighted sum of the bike and car travel times. Travel times are measured as network distances combined with the speed limit. We assume that cyclists can take all roads, but the bike travel time along a street is perceived to be higher if there is no dedicated bike lane. 
+
+The trade-off between bike and car travel times can be visualized with Pareto frontiers. As shown in the figure below, our algorithm improves the pareto-optimality over the tested baselines. It allows to radically rebuild the street network, repurposing a large fraction of lanes as bike lanes without interrupting the connectivity of the car network. 
+
+
+<img src="assets/overview.png" alt="Pareto frontier and corresponding street networks" style="width:100%;">
+
 
 ### Installation
-
 
 The code can be installed via pip in editable mode in a virtual environment with the following commands:
 
@@ -17,6 +24,8 @@ pip install -e .
 
 This installs the package called `ebike_city_tools` in your virtual environment, together with all dependencies. 
 The functions in this package can then be imported from any folder, e.g. `from ebike_city_tools.metrics import *`
+
+We also provide a Dockerfile that allows deploying this code as a Python Flask app.
 
 ### File description
 
@@ -67,3 +76,18 @@ optional arguments:
 There are two types of graph structures used throughout the code:
 * lane graphs: nx.MultiDiGraph, usually denoted as G_lane, one directed edge per lane
 * street graphs: nx.DiGraph, usually denoted as G_street, two reciprocal edges per street (this is the input to the optimization algorithm)
+
+
+**Please consider citing our paper if you  build up on this work:**
+
+Wiedemann, N., Nöbel, C., Martin, H., Ballo, L., & Raubal, M. (2024). Bike network planning in limited urban space. arXiv preprint arXiv:2405.01770.
+
+
+```bib
+@article{wiedemann2024bike,
+  title={Bike network planning in limited urban space},
+  author={Wiedemann, Nina and N{\"o}bel, Christian and Martin, Henry and Ballo, Lukas and Raubal, Martin},
+  journal={arXiv preprint arXiv:2405.01770},
+  year={2024}
+}
+```
