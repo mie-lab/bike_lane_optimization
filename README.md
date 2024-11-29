@@ -1,6 +1,6 @@
 # Bike network planning in limited urban space
 
-This code accompanies our [paper](https://arxiv.org/abs/2405.01770) `Bike Network Planning in Limited Urban Space`, accepted to Transportation Research Part B. 
+This code accompanies our [paper](https://arxiv.org/abs/2405.01770) **Bike Network Planning in Limited Urban Space**, accepted to *Transportation Research Part B*. 
 
 This project presents an optimization framework for planning bike lane networks in urban areas, aiming to minimize the impact on other transport modes. We model the problem as a linear program, where the objective function balances bike and car travel times through a weighted sum. Travel times are calculated using network distances and speed limits, with the assumption that cyclists can use all roads. However, roads without dedicated bike lanes have higher *perceived* travel times for cyclists.
 
@@ -75,13 +75,13 @@ For example, if you downloaded the data for Affoltern and put it into a folder `
 python scripts/run_real_data.py -d data -i affoltern -o outputs
 ```
 
-It will use the default parameters for `optimize_every_k`, `car_weight`, `valid_edges_k`, `penalty_shared`, `sp_method`, and save the pareto frontier into the folder `outputs`.
+It will use the default parameters for `optimize_every_k`, `car_weight`, `valid_edges_k`, `penalty_shared`, `sp_method` (see paper for parameter definitions), and save the pareto frontier into the folder `outputs`.
 
 ### Explanatory notes
 
 There are two types of graph structures used throughout the code:
 * lane graphs: nx.MultiDiGraph, usually denoted as G_lane, one directed edge per lane
-* street graphs: nx.DiGraph, usually denoted as G_street, two reciprocal edges per street (basically an undirected graph)
+* street graphs: nx.DiGraph, usually denoted as G_street, two reciprocal edges per street (essentially an undirected graph)
 
 We start and end with a lane graph, reflecting the current situation of the network and the rebuilt version respectivaly. Our algorithm is, however, applied on the street graph, allowing the algorithm to allocate the optimal number of lanes in either directions based on the street capacity.
 
@@ -92,9 +92,8 @@ We start and end with a lane graph, reflecting the current situation of the netw
 `ebike_city_tools`: Package with main code, including:
 * Folder `optimize`: This folder contains the linear program formulation (see [here](ebike_city_tools/optimize/linear_program.py)) and related code
 * `synthetic.py`: Functions for generating random networks for testing. In order to make them more similar to real-world street networks, the edges are samples with a probability inversly proportional to the distance between the nodes. This ensures that streets rather connect nearby nodes. 
-* `metrics.py`: Metrics for evaluating a given network (can be directed or undirected). So far, closeness and all-pairs shortest path distances are implemented.
-* `iterative_algorithms.py`: The baseline algorithms that I implemented so far. Algorithms have varying levels of complexity, ranging from simply extracting a minimal spanning tree as the bike network to optimizing according to the betweenness centrality.
-* `rl_env.py`: At some point I wanted to train a reinforcemnt learning agent to improve bike networks. This is only the environment that could be used for that (the RL agent is not implemented yet).
+* `metrics.py`: Metrics for evaluating a given network (can be directed or undirected). Mainly based on network-based travel times (and perceived bike travel time)
+* `iterative_algorithms.py`: The baseline algorithms, all based on the betweenness centrality heuristic.
 
 `app.py`: Code to deploy a Python Flask app
 
