@@ -58,16 +58,19 @@ algorithm_dict = {
 
 SPEED_COL = 'temporeg00'
 TRAFFIC_COL = 'AADT_all_veh'
-TRAFFIC_COLS = ['AADT_heavy_veh', 'AADT_articulated_veh', 'AADT_truck_veh', 'AADT_delivery_veh']
+TRAFFIC_COLS = ['AADT_articulated_truck_veh', 'AADT_truck_veh', 'AADT_delivery_veh']
 LANDUSE_COL = 'typ'
 SURFACE_COL = 'belagsart'
 SLOPE_COL = 'steigung'
 POP_COL = 'PERS_N'
 AIR_COL = 'no2'
+NOISE_COL = "lre_tag"
 BIKE_PARKING_COL = "anzahl_pp"
 BIKELANE_WIDTH_COL = 'ln_desc_width_cycling_m'
 MOTORIZED_WIDTH_COL = 'ln_desc_width_motorized_m'
-BIKELANE_COL = 'ln_desc'
+BIKELANE_COL = 'ln_desc_after'
+placeholder_network = gpd.read_file('<local_file>') # temporarily use local file to replace edge df from the db.
+
 
 app = Flask(__name__)
 CORS(app, origins=["*", "null"])  # allowing any origin as well as localhost (null)
@@ -129,12 +132,10 @@ def get_bci_evaluation():
         run_output = pd.read_sql(
             f"SELECT * FROM {SCHEMA}.runs_optimized WHERE id_prj = {project_id} AND id_run = {run_id}", connector)
 
-        lane_graph = recreate_lane_graph(project_edges, run_output)
-        street_graph = lane_to_street_graph(lane_graph)
+        # lane_graph = recreate_lane_graph(project_edges, run_output)
+        # street_graph = lane_to_street_graph(lane_graph)
 
-        # to test the eval methods
-        # street_graph = gpd.read_file(
-        #    'C:/Users/agrisiute/Documents/data/optimized_network_nina/rebuild_whole_graph.gpkg')
+        street_graph = placeholder_network  # to test eval methods
         street_graph['index'] = street_graph.index
 
         edges_bci = calculate_bci(street_graph,
@@ -164,12 +165,10 @@ def get_bsl_evaluation():
         run_output = pd.read_sql(
             f"SELECT * FROM {SCHEMA}.runs_optimized WHERE id_prj = {project_id} AND id_run = {run_id}", connector)
 
-        lane_graph = recreate_lane_graph(project_edges, run_output)
-        street_graph = lane_to_street_graph(lane_graph)
+        #lane_graph = recreate_lane_graph(project_edges, run_output)
+        #street_graph = lane_to_street_graph(lane_graph)
 
-        # to test the eval methods
-        # street_graph = gpd.read_file(
-        #    'C:/Users/agrisiute/Documents/data/optimized_network_nina/rebuild_whole_graph.gpkg')
+        street_graph = placeholder_network  # to test eval methods
         street_graph['index'] = street_graph.index
 
         edges_bsl = calculate_bsl(street_graph,
@@ -197,12 +196,10 @@ def get_lts_evaluation():
         run_output = pd.read_sql(
             f"SELECT * FROM {SCHEMA}.runs_optimized WHERE id_prj = {project_id} AND id_run = {run_id}", connector)
 
-        lane_graph = recreate_lane_graph(project_edges, run_output)
-        street_graph = lane_to_street_graph(lane_graph)
+        #lane_graph = recreate_lane_graph(project_edges, run_output)
+        #street_graph = lane_to_street_graph(lane_graph)
 
-        # to test the eval methods
-        # street_graph = gpd.read_file(
-        #    'C:/Users/agrisiute/Documents/data/optimized_network_nina/rebuild_whole_graph.gpkg')
+        street_graph = placeholder_network  # to test eval methods
         street_graph['index'] = street_graph.index
 
         edges_lts = calculate_lts(street_graph,
@@ -229,12 +226,10 @@ def get_blos_evaluation():
         run_output = pd.read_sql(
             f"SELECT * FROM {SCHEMA}.runs_optimized WHERE id_prj = {project_id} AND id_run = {run_id}", connector)
 
-        lane_graph = recreate_lane_graph(project_edges, run_output)
-        street_graph = lane_to_street_graph(lane_graph)
+        #lane_graph = recreate_lane_graph(project_edges, run_output)
+        #street_graph = lane_to_street_graph(lane_graph)
 
-        # to test the eval methods
-        # street_graph = gpd.read_file(
-        #    'C:/Users/agrisiute/Documents/data/optimized_network_nina/rebuild_whole_graph.gpkg')
+        street_graph = placeholder_network  # to test eval methods
         street_graph['index'] = street_graph.index
 
         edges_blos = calculate_blos(street_graph,
@@ -264,12 +259,10 @@ def get_porter_evaluation():
         run_output = pd.read_sql(
             f"SELECT * FROM {SCHEMA}.runs_optimized WHERE id_prj = {project_id} AND id_run = {run_id}", connector)
 
-        lane_graph = recreate_lane_graph(project_edges, run_output)
-        street_graph = lane_to_street_graph(lane_graph)
+        #lane_graph = recreate_lane_graph(project_edges, run_output)
+        #street_graph = lane_to_street_graph(lane_graph)
 
-        # to test the eval methods
-        # street_graph = gpd.read_file(
-        #    'C:/Users/agrisiute/Documents/data/optimized_network_nina/rebuild_whole_graph.gpkg')
+        street_graph = placeholder_network # to test eval methods
         street_graph['index'] = street_graph.index
 
         edges_porter = calculate_porter_index(
@@ -290,7 +283,7 @@ def get_porter_evaluation():
         return jsonify({"error": str(e)}), 500
 
 
-@app.route("/get_winkl", methods=["GET"])
+@app.route("/get_weikl", methods=["GET"])
 def get_weikl_evaluation():
     try:
         connector = get_database_connector(DB_LOGIN_PATH)
@@ -301,12 +294,10 @@ def get_weikl_evaluation():
         run_output = pd.read_sql(
             f"SELECT * FROM {SCHEMA}.runs_optimized WHERE id_prj = {project_id} AND id_run = {run_id}", connector)
 
-        lane_graph = recreate_lane_graph(project_edges, run_output)
-        street_graph = lane_to_street_graph(lane_graph)
+        #lane_graph = recreate_lane_graph(project_edges, run_output)
+        #street_graph = lane_to_street_graph(lane_graph)
 
-        # to test the eval methods
-        # street_graph = gpd.read_file(
-        #    'C:/Users/agrisiute/Documents/data/optimized_network_nina/rebuild_whole_graph.gpkg')
+        street_graph = placeholder_network  # to test eval methods
         street_graph['index'] = street_graph.index
 
         edges_weikl = calculate_weikl_index(
