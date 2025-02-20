@@ -9,10 +9,9 @@ from flask_cors import CORS, cross_origin  # needs to be installed via pip insta
 
 from sqlalchemy.orm import sessionmaker
 
-
 from ebike_city_tools.graph_utils import (
     street_to_lane_graph,
-    keep_only_the_largest_connected_component,
+    keep_only_the_largest_connected_component, lane_to_street_graph,
 )
 
 from shapely.geometry import Polygon
@@ -30,9 +29,10 @@ from ebike_city_tools.app_utils import (
     get_network_bearings,
 )
 from ebike_city_tools.metrics import compute_travel_times_in_graph
+from ebike_city_tools.eval_utils import calculate_bci
 
 # Set to True if you want to use the Database - otherwise, everything will just be saved in a dictionary
-DB_LOGIN_PATH = "dblogin_ikgpgis.json"
+DB_LOGIN_PATH = os.path.join(os.path.dirname(__file__), "dblogin_ikgpgis.json")
 SCHEMA = "webapp"
 # path to load data from IF database=False:
 PATH_DATA = "../street_network_data/zurich/"
@@ -55,6 +55,18 @@ algorithm_dict = {
     "betweenness_biketime": (betweenness_pareto, {"betweenness_attr": "bike_time"}),
 }
 
+SPEED_COL = 'temporeg00'
+TRAFFIC_COL = 'AADT_all_veh'
+LANDUSE_COL = 'typ'
+SURFACE_COL = 'belagsart'
+SLOPE_COL = 'steigung'
+POP_COL = 'PERS_N'
+AIR_COL = 'no2'
+BIKE_PARKING_COL = "anzahl_pp"
+BIKELANE_WIDTH_COL = 'ln_desc_width_cycling_m'
+MOTORIZED_WIDTH_COL = 'ln_desc_width_motorized_m'
+BIKELANE_COL = 'ln_desc'
+
 app = Flask(__name__)
 CORS(app, origins=["*", "null"])  # allowing any origin as well as localhost (null)
 
@@ -67,32 +79,107 @@ zurich_nodes = gpd.read_postgis(
     "SELECT * FROM zurich.nodes" + FULL_GRAPH, db_connector, geom_col="geometry", index_col="osmid"
 )
 print("Loaded nodes and edges for Zurich from server", len(zurich_nodes), len(zurich_edges))
+
 trips_microcensus = gpd.read_postgis("SELECT * FROM zurich.trips_microcensus", db_connector, geom_col="geometry")
 od_zurich = pd.read_sql("SELECT * FROM zurich.od_matrix" + FULL_GRAPH, db_connector)
 print("Loaded OD matrix for Zurich", len(od_zurich))
 
-# # DEPRECATED VERSION WITHOUT DATABASE:
-# zurich_nodes = gpd.read_file(os.path.join(PATH_DATA, "street_graph_nodes.gpkg")).to_crs(CRS).set_index("osmid")
-# zurich_edges = gpd.read_file(os.path.join(PATH_DATA, "street_graph_edges.gpkg")).to_crs(CRS)
-# # some preprocessing
-# zurich_edges = clean_street_graph_multiedges(zurich_edges)
-# zurich_edges = clean_street_graph_directions(zurich_edges)
+# CONTEXT DATA
+queries = {
+    "air_quality": "SELECT * FROM zurich.air_quality",
+    "bike_parking": "SELECT * FROM zurich.bike_parking",
+    "green_spaces": "SELECT * FROM zurich.green_spaces",
+    "housing_units": "SELECT * FROM zurich.housing_units",
+    "landuse": "SELECT * FROM zurich.landuse",
+    "noise_pollution": "SELECT * FROM zurich.noise_pollution",
+    "pois": "SELECT * FROM zurich.pois",
+    "population": "SELECT * FROM zurich.population",
+    "pt_stops": "SELECT * FROM zurich.pt_stops",
+    "slope": "SELECT * FROM zurich.slope",
+    "speed_limits": "SELECT * FROM zurich.speed_limits",
+    "street_lighting": "SELECT * FROM zurich.street_lighting",
+    "surface": "SELECT * FROM zurich.surface",
+    "traffic_volume": "SELECT * FROM zurich.traffic_volume",
+    "tree_canopy": "SELECT * FROM zurich.tree_canopy"
+}
 
-# # Load OD matrix
-# # load the whole-city trip and construct origin and destination geometry
-# trips_microcensus = gpd.read_file(os.path.join(PATH_DATA, "raw_od_matrix", "trips_mc_cleaned_proj.gpkg"))
-# trips_microcensus["geom_destination"] = gpd.points_from_xy(
-#     x=trips_microcensus["end_lng"], y=trips_microcensus["end_lat"]
-# )
-# trips_microcensus["geom_origin"] = gpd.points_from_xy(
-#     x=trips_microcensus["start_lng"], y=trips_microcensus["start_lat"]
-# )
+# Load each dataset into a dictionary
+context_datasets = {}
+for name, query in queries.items():
+    try:
+        context_datasets[name] = gpd.read_postgis(query, db_connector, geom_col="geom")
+    except Exception as e:
+        print(f"Error loading {name}: {e}")
 
-# # load prebuilt OD matrix
-# od_zurich = pd.read_csv(os.path.join(PATH_DATA, "od_matrix.csv"))
+# Create and print an overview summary
+overview = "\n".join([f"{name}: {len(df)} features" for name, df in context_datasets.items()])
+print("Loaded contextual data for Zurich:\n" + overview)
 
-# # Dictionary storing the graphs and OD matrices per project. TODO: replace with database
-# project_dict = {}
+
+###test###
+connector = get_database_connector(DB_LOGIN_PATH)
+project_id = 203  # int(request.args.get("project_id"))
+run_id = 1  # request.args.get("run_name")
+
+project_edges = pd.read_sql(f"SELECT * FROM {SCHEMA}.edges WHERE id_prj = {project_id}", connector)
+run_output = pd.read_sql(
+            f"SELECT * FROM {SCHEMA}.runs_optimized WHERE id_prj = {project_id} AND id_run = {run_id}", connector)
+
+lane_graph = recreate_lane_graph(project_edges, run_output)
+street_graph = lane_to_street_graph(lane_graph)
+
+# to test the eval methods
+#street_graph = gpd.read_file(
+#    'C:/Users/agrisiute/Documents/data/optimized_network_nina/rebuild_whole_graph.gpkg')
+street_graph['index'] = street_graph.index
+
+edges_bci = calculate_bci(street_graph,
+                            BIKELANE_COL,
+                            BIKELANE_WIDTH_COL,
+                            MOTORIZED_WIDTH_COL,
+                            context_datasets['landuse'],
+                            LANDUSE_COL,
+                            context_datasets['traffic_volume'],
+                            TRAFFIC_COL,
+                            context_datasets['speed_limits'],
+                            SPEED_COL)
+
+@app.route("/get_bci", methods=["GET"])
+def get_bci_evaluation():
+    try:
+        connector = get_database_connector(DB_LOGIN_PATH)
+        project_id = 203  # int(request.args.get("project_id"))
+        run_id = 1  # request.args.get("run_name")
+
+        project_edges = pd.read_sql(f"SELECT * FROM {SCHEMA}.edges WHERE id_prj = {project_id}", connector)
+        run_output = pd.read_sql(
+            f"SELECT * FROM {SCHEMA}.runs_optimized WHERE id_prj = {project_id} AND id_run = {run_id}", connector)
+
+        lane_graph = recreate_lane_graph(project_edges, run_output)
+        street_graph = lane_to_street_graph(lane_graph)
+
+        # to test the eval methods
+        #street_graph = gpd.read_file(
+        #    'C:/Users/agrisiute/Documents/data/optimized_network_nina/rebuild_whole_graph.gpkg')
+        street_graph['index'] = street_graph.index
+
+        edges_bci = calculate_bci(street_graph,
+                                  BIKELANE_COL,
+                                  BIKELANE_WIDTH_COL,
+                                  MOTORIZED_WIDTH_COL,
+                                  context_datasets['landuse'],
+                                  LANDUSE_COL,
+                                  context_datasets['traffic_volume'],
+                                  TRAFFIC_COL,
+                                  context_datasets['speed_limits'],
+                                  SPEED_COL)
+
+        # TODO what should be returned for visualization?
+        return jsonify({"edges_bci": list(edges_bci['bci'])}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 
 
 @app.route("/construct_graph", methods=["POST"])
