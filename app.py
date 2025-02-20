@@ -29,7 +29,8 @@ from ebike_city_tools.app_utils import (
     get_network_bearings,
 )
 from ebike_city_tools.metrics import compute_travel_times_in_graph
-from ebike_city_tools.eval_utils import calculate_bci
+from ebike_city_tools.eval_utils import calculate_bci, calculate_bsl, calculate_lts, calculate_blos, \
+    calculate_porter_index, calculate_weikl_index
 
 # Set to True if you want to use the Database - otherwise, everything will just be saved in a dictionary
 DB_LOGIN_PATH = os.path.join(os.path.dirname(__file__), "dblogin_ikgpgis.json")
@@ -57,6 +58,7 @@ algorithm_dict = {
 
 SPEED_COL = 'temporeg00'
 TRAFFIC_COL = 'AADT_all_veh'
+TRAFFIC_COLS = ['AADT_heavy_veh', 'AADT_articulated_veh', 'AADT_truck_veh', 'AADT_delivery_veh']
 LANDUSE_COL = 'typ'
 SURFACE_COL = 'belagsart'
 SLOPE_COL = 'steigung'
@@ -116,34 +118,6 @@ overview = "\n".join([f"{name}: {len(df)} features" for name, df in context_data
 print("Loaded contextual data for Zurich:\n" + overview)
 
 
-###test###
-connector = get_database_connector(DB_LOGIN_PATH)
-project_id = 203  # int(request.args.get("project_id"))
-run_id = 1  # request.args.get("run_name")
-
-project_edges = pd.read_sql(f"SELECT * FROM {SCHEMA}.edges WHERE id_prj = {project_id}", connector)
-run_output = pd.read_sql(
-            f"SELECT * FROM {SCHEMA}.runs_optimized WHERE id_prj = {project_id} AND id_run = {run_id}", connector)
-
-lane_graph = recreate_lane_graph(project_edges, run_output)
-street_graph = lane_to_street_graph(lane_graph)
-
-# to test the eval methods
-#street_graph = gpd.read_file(
-#    'C:/Users/agrisiute/Documents/data/optimized_network_nina/rebuild_whole_graph.gpkg')
-street_graph['index'] = street_graph.index
-
-edges_bci = calculate_bci(street_graph,
-                            BIKELANE_COL,
-                            BIKELANE_WIDTH_COL,
-                            MOTORIZED_WIDTH_COL,
-                            context_datasets['landuse'],
-                            LANDUSE_COL,
-                            context_datasets['traffic_volume'],
-                            TRAFFIC_COL,
-                            context_datasets['speed_limits'],
-                            SPEED_COL)
-
 @app.route("/get_bci", methods=["GET"])
 def get_bci_evaluation():
     try:
@@ -159,7 +133,7 @@ def get_bci_evaluation():
         street_graph = lane_to_street_graph(lane_graph)
 
         # to test the eval methods
-        #street_graph = gpd.read_file(
+        # street_graph = gpd.read_file(
         #    'C:/Users/agrisiute/Documents/data/optimized_network_nina/rebuild_whole_graph.gpkg')
         street_graph['index'] = street_graph.index
 
@@ -179,6 +153,183 @@ def get_bci_evaluation():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/get_bsl", methods=["GET"])
+def get_bsl_evaluation():
+    try:
+        connector = get_database_connector(DB_LOGIN_PATH)
+        project_id = int(request.args.get("project_id"))
+        run_id = request.args.get("run_name")
+
+        project_edges = pd.read_sql(f"SELECT * FROM {SCHEMA}.edges WHERE id_prj = {project_id}", connector)
+        run_output = pd.read_sql(
+            f"SELECT * FROM {SCHEMA}.runs_optimized WHERE id_prj = {project_id} AND id_run = {run_id}", connector)
+
+        lane_graph = recreate_lane_graph(project_edges, run_output)
+        street_graph = lane_to_street_graph(lane_graph)
+
+        # to test the eval methods
+        # street_graph = gpd.read_file(
+        #    'C:/Users/agrisiute/Documents/data/optimized_network_nina/rebuild_whole_graph.gpkg')
+        street_graph['index'] = street_graph.index
+
+        edges_bsl = calculate_bsl(street_graph,
+                                  BIKELANE_COL,
+                                  MOTORIZED_WIDTH_COL,
+                                  context_datasets['speed_limits'],
+                                  SPEED_COL,
+                                  context_datasets['traffic_volume'],
+                                  TRAFFIC_COL
+                                  )
+
+        return jsonify({"edges_bci": list(edges_bsl['bsl'])}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/get_lts", methods=["GET"])
+def get_lts_evaluation():
+    try:
+        connector = get_database_connector(DB_LOGIN_PATH)
+        project_id = int(request.args.get("project_id"))
+        run_id = request.args.get("run_name")
+
+        project_edges = pd.read_sql(f"SELECT * FROM {SCHEMA}.edges WHERE id_prj = {project_id}", connector)
+        run_output = pd.read_sql(
+            f"SELECT * FROM {SCHEMA}.runs_optimized WHERE id_prj = {project_id} AND id_run = {run_id}", connector)
+
+        lane_graph = recreate_lane_graph(project_edges, run_output)
+        street_graph = lane_to_street_graph(lane_graph)
+
+        # to test the eval methods
+        # street_graph = gpd.read_file(
+        #    'C:/Users/agrisiute/Documents/data/optimized_network_nina/rebuild_whole_graph.gpkg')
+        street_graph['index'] = street_graph.index
+
+        edges_lts = calculate_lts(street_graph,
+                                  BIKELANE_COL,
+                                  context_datasets['speed_limits'],
+                                  SPEED_COL,
+                                  context_datasets['traffic_volume'],
+                                  TRAFFIC_COL
+                                  )
+
+        return jsonify({"edges_lts": list(edges_lts['lts'])}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/get_blos", methods=["GET"])
+def get_blos_evaluation():
+    try:
+        connector = get_database_connector(DB_LOGIN_PATH)
+        project_id = int(request.args.get("project_id"))
+        run_id = request.args.get("run_name")
+
+        project_edges = pd.read_sql(f"SELECT * FROM {SCHEMA}.edges WHERE id_prj = {project_id}", connector)
+        run_output = pd.read_sql(
+            f"SELECT * FROM {SCHEMA}.runs_optimized WHERE id_prj = {project_id} AND id_run = {run_id}", connector)
+
+        lane_graph = recreate_lane_graph(project_edges, run_output)
+        street_graph = lane_to_street_graph(lane_graph)
+
+        # to test the eval methods
+        # street_graph = gpd.read_file(
+        #    'C:/Users/agrisiute/Documents/data/optimized_network_nina/rebuild_whole_graph.gpkg')
+        street_graph['index'] = street_graph.index
+
+        edges_blos = calculate_blos(street_graph,
+                                    BIKELANE_COL,
+                                    context_datasets['traffic_volume'],
+                                    TRAFFIC_COLS,
+                                    MOTORIZED_WIDTH_COL,
+                                    context_datasets['speed_limits'],
+                                    SPEED_COL,
+                                    context_datasets['surface'],
+                                    SURFACE_COL
+                                    )
+
+        return jsonify({"edges_blos": list(edges_blos['blos'])}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/get_porter", methods=["GET"])
+def get_porter_evaluation():
+    try:
+        connector = get_database_connector(DB_LOGIN_PATH)
+        project_id = int(request.args.get("project_id"))
+        run_id = request.args.get("run_name")
+
+        project_edges = pd.read_sql(f"SELECT * FROM {SCHEMA}.edges WHERE id_prj = {project_id}", connector)
+        run_output = pd.read_sql(
+            f"SELECT * FROM {SCHEMA}.runs_optimized WHERE id_prj = {project_id} AND id_run = {run_id}", connector)
+
+        lane_graph = recreate_lane_graph(project_edges, run_output)
+        street_graph = lane_to_street_graph(lane_graph)
+
+        # to test the eval methods
+        # street_graph = gpd.read_file(
+        #    'C:/Users/agrisiute/Documents/data/optimized_network_nina/rebuild_whole_graph.gpkg')
+        street_graph['index'] = street_graph.index
+
+        edges_porter = calculate_porter_index(
+            street_graph,
+            BIKELANE_COL,
+            context_datasets['housing_units'],
+            context_datasets['population'],
+            POP_COL,
+            context_datasets['green_spaces'],
+            context_datasets['tree_canopy'],
+            context_datasets['pt_stops'],
+            context_datasets['air_quality'],
+            AIR_COL
+        )
+
+        return jsonify({"edges_porter": list(edges_porter['porter'])}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/get_winkl", methods=["GET"])
+def get_weikl_evaluation():
+    try:
+        connector = get_database_connector(DB_LOGIN_PATH)
+        project_id = int(request.args.get("project_id"))
+        run_id = request.args.get("run_name")
+
+        project_edges = pd.read_sql(f"SELECT * FROM {SCHEMA}.edges WHERE id_prj = {project_id}", connector)
+        run_output = pd.read_sql(
+            f"SELECT * FROM {SCHEMA}.runs_optimized WHERE id_prj = {project_id} AND id_run = {run_id}", connector)
+
+        lane_graph = recreate_lane_graph(project_edges, run_output)
+        street_graph = lane_to_street_graph(lane_graph)
+
+        # to test the eval methods
+        # street_graph = gpd.read_file(
+        #    'C:/Users/agrisiute/Documents/data/optimized_network_nina/rebuild_whole_graph.gpkg')
+        street_graph['index'] = street_graph.index
+
+        edges_weikl = calculate_weikl_index(
+            street_graph,
+            BIKELANE_COL,
+            context_datasets['speed_limits'],
+            SPEED_COL,
+            context_datasets['street_lighting'],
+            context_datasets['traffic_volume'],
+            TRAFFIC_COL,
+            context_datasets['slope'],
+            SLOPE_COL,
+            context_datasets['surface'],
+            SURFACE_COL,
+            context_datasets['green_spaces'],
+            context_datasets['noise_pollution'],
+            context_datasets['air_quality'],
+            AIR_COL
+        )
+
+        return jsonify({"edges_weikl": list(edges_weikl['weikl'])}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/construct_graph", methods=["POST"])
