@@ -289,7 +289,7 @@ def calculate_blos(
     df['car_lane_n'] = df[lane_col].apply(lambda x: count_characters(x, "HMT")).replace(0, np.nan)
     df['car_lane_n'] = np.where(df['oneway_bool'], df['car_lane_n'], df['car_lane_n'] / 2)
     df['curb_lane_width'] = df[motorized_width_col] / df['car_lane_n']
-    df['heavy_veh'] = df[traffic_cols[1:]].sum(axis=1)
+    df['heavy_veh'] = df[traffic_cols].sum(axis=1)
 
     traffic_vol_15_min = (df[traffic_cols[0]] * 0.565 * 0.1) / 4
     speed_limit_mph = df[speed_col] * 0.621371  # Convert kph to mph
@@ -347,16 +347,16 @@ def calculate_porter_index(
     """
 
     df = edges_df.copy()
-    buffer_30 = calculate_buffer(df[['geometry', 'index']], 30)
-    buffer_15 = calculate_buffer(df[['geometry', 'index']], 15)
+    buffer_30 = calculate_buffer(df, 30)
+    buffer_15 = calculate_buffer(df, 15)
 
     bike_lanes = df[df[lane_col].str.contains("P", na=False)][['geometry', 'length']]
     df['bike_lane_density'] = calculate_count(buffer_30, bike_lanes, 'index', 'length')
     df['parks_n'] = calculate_count(buffer_30, green_spaces, 'index')
     df['housing_units'] = calculate_count(buffer_30, housing, 'index') / (buffer_30['buff_area'] / 1e6)
     df['pop_density'] = calculate_count(buffer_30, population, 'index', population_col) / (buffer_30['buff_area'] / 1e6)
-    df['tree_coverage'] = (calculate_count(buffer_15, trees, 'index', 'area') / (buffer_15['buff_area'] / 1e6)) * 100
 
+    df = merge_spatial_share(df, buffer_15, trees, 'tree_coverage', 'buff_area', percent=True)
     df = merge_spatial_count(buffer_15, df, air_quality, target_col='air_poll', agg_col=air_col, agg_func=avg_no2)
     df = merge_distance_to_nearest(df, pt_stops, "dist_to_pt", merge_col='index', how='left')
 
@@ -436,8 +436,8 @@ def calculate_weikl_index(
     df['bike_lane_bool'] = df[lane_col].apply(lambda x: 1 if pd.notna(x) and any(char in "P" for char in x) else 0)
     df['speed_diff'] = merge_spatial_attribute(buffer, df, speed_limits, speed_col).fillna(0)[speed_col] - bike_speed
     df = merge_spatial_count(buffer, df, street_lighting, target_col='street_lights')
-    df['light_ratio'] = df['street_light'] / df['length']
-    df = merge_spatial_share(df, green_spaces, 'green_space_share', 'length')
+    df['light_ratio'] = df['street_lights'] / df['length']
+    df = merge_spatial_share(df, buffer, green_spaces, 'green_space_share', 'buff_area')
     df = merge_spatial_count(buffer, df, air_quality, target_col='air_poll', agg_col=agg_col, agg_func=avg_no2)
     df = merge_spatial_attribute(buffer, df, traffic_volume, traffic_col)
     df = merge_spatial_attribute(buffer, df, slope, slope_col)
@@ -457,7 +457,7 @@ def calculate_weikl_index(
     # Points
     bike_lane_pts = np.where(df['bike_lane_bool'] > 0, 5, 1)
     speed_pts = assign_points(df['speed_diff'], bins['speed_diff'])
-    light_pts = assign_points(df['light_ratio'] , bins['light_ratio'])
+    light_pts = assign_points(df['light_ratio'], bins['light_ratio'])
     slope_pts = assign_points(df[slope_col] ** 2 / df['length'], bins[slope_col])
     green_space_pts = assign_points(df['green_space_share'], bins['green_space'])
     traffic_vol_pts = assign_points(df[traffic_col], bins[traffic_col])
@@ -465,7 +465,7 @@ def calculate_weikl_index(
     air_quality_pts = assign_points(df['air_poll'], bins['air_poll'])
 
     safety = 0.27 * bike_lane_pts + 0.11 * speed_pts + 0.23 * traffic_vol_pts + 0.13 * light_pts
-    comfort = 0.27 * bike_lane_pts + 0.19 * slope_pts + 0.26 * surface[surface_col].fillna(0)
+    comfort = 0.27 * bike_lane_pts + 0.19 * slope_pts + 0.26 * df[surface_col].fillna(0)
     attr = 0.35 * green_space_pts + 0.3 * noise_poll_pts + 0.35 * air_quality_pts
     weikl_index = 0.3 * safety + 0.19 * comfort + 0.13 * attr
 
@@ -494,7 +494,7 @@ def calculate_buffer(
         buffer_size: float
 ) -> gpd.GeoDataFrame:
 
-    buff_df = df.copy()[['geometry', 'length', 'index']]
+    buff_df = df.copy()[['geometry', 'index']]
     buff_df['geometry'] = buff_df.buffer(buffer_size)
     buff_df['buff_area'] = buff_df.area
 
@@ -513,12 +513,13 @@ def avg_no2(group):
 
 def calculate_count(
         df: gpd.GeoDataFrame,
-        other_df: gpd.GeoDataFrame,
+        context_data: gpd.GeoDataFrame,
         grouping_column: str,
         count_column: str = None
 ) -> gpd.GeoDataFrame:
+    """sums quantities of items or item properties."""
 
-    overlaps = gpd.sjoin(df, other_df, how='inner', predicate='intersects')
+    overlaps = gpd.sjoin(df, context_data, how='inner', predicate='intersects')
 
     if count_column:
         result = overlaps.groupby(grouping_column)[count_column].sum()
@@ -547,15 +548,11 @@ def merge_spatial_attribute(
     if not isinstance(target_cols, list):
         target_cols = [target_cols]
 
-    if 'index' in list(spatial_data.columns):
-        spatial_data = spatial_data.drop(columns=['index'])
-
     # Perform spatial overlay
     overlaps = gpd.overlay(buff_edges, spatial_data, how="intersection", keep_geom_type=False)
     overlaps['overlap_length'] = overlaps.geometry.length
     idx = overlaps.groupby(merge_col)['overlap_length'].idxmax()
     max_overlaps = overlaps.loc[idx]
-    print(max_overlaps.columns)
 
     merge_cols = [merge_col] + attribute_cols
     edges = edges.merge(max_overlaps[merge_cols], on=merge_col, how="left")
@@ -637,6 +634,7 @@ def merge_spatial_share(
 ) -> gpd.GeoDataFrame:
 
     overlaps = gpd.overlay(buffer, spatial_data, how="intersection", keep_geom_type=False)
+    print(overlaps.columns)
 
     if overlaps.empty:
         edges[target_col] = 0
