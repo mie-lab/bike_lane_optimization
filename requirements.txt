@@ -1,13 +1,14 @@
 flask==3.0.2
 flask-failsafe==0.2
-geoalchemy2==0.14.6
+flask-cors==3.0.10
 fiona==1.9.5
+geoalchemy2==0.14.6
 geopandas==0.14.4
 opencv-python==4.9.0.80
 psycopg2==2.9.9
-sqlalchemy==2.0.28
-networkx==3.1
-flask-cors==3.0.10
-scipy==1.11.4
-mip==1.14.2
+sqlalchemy==2.0.38
+networkx==3.2.1
+scipy==1.12.0
+mip==1.14.2 # not clear
 shapely==2.0.1
+osmnx==1.9.3
