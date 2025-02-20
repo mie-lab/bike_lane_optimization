@@ -174,7 +174,6 @@ def get_bci_evaluation():
                                   context_datasets['speed_limits'],
                                   SPEED_COL)
 
-        # TODO what should be returned for visualization?
         return jsonify({"edges_bci": list(edges_bci['bci'])}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
