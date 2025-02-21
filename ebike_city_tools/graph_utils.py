@@ -34,6 +34,33 @@ def load_nodes_edges_dataframes(
     return street_graph_nodes, street_graph_edges
 
 
+def lane_to_snman_street_graph(edges_in):
+    """Transform lane graph edges to street graph edges in SNMAN format"""
+    edges = edges_in.copy()
+    # assign u and v just as the lower and higher node id
+    edges["u"] = edges[["source", "target"]].min(axis=1)
+    edges["v"] = edges[["source", "target"]].max(axis=1)
+    # set directional > < indicator
+    edges["direction"] = edges["lanetype"] + edges.apply(
+        lambda row: ">" if row["source"] < row["target"] else "<", axis=1
+    )
+    edges["gradient"] = edges["gradient"] * (-1) * ((edges["target"] < edges["source"]).astype(int) * 2 - 1)
+
+    def combine_groups(grouped_df):
+        """Takes all rows for one street and combines them"""
+        combined = grouped_df.iloc[0]
+        combined["lanetype"] = " | ".join(grouped_df["direction"])
+        return combined
+
+    # combine streets into one row each
+    street_edges = edges.groupby(["u", "v"]).apply(combine_groups)
+    # rename and reduce to necessary attributes
+    street_edges = street_edges.rename(
+        {"lanetype": "ln_desc_after", "speed_limit": "maxspeed", "distance": "length"}, axis=1
+    )
+    return street_edges[["ln_desc_after", "maxspeed", "length", "gradient"]].reset_index()
+
+
 def load_lane_graph(
     path: str,
     edge_fn: str = "edges_all_attributes.gpkg",
