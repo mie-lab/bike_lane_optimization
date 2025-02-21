@@ -1,9 +1,7 @@
 import os
 import geopandas as gpd
-import sqlalchemy
 import networkx as nx
 import pandas as pd
-import numpy as np
 from flask import Flask, jsonify, request
 from flask_cors import CORS, cross_origin  # needs to be installed via pip install flask-cors
 
@@ -11,9 +9,9 @@ from sqlalchemy.orm import sessionmaker
 
 from ebike_city_tools.graph_utils import (
     street_to_lane_graph,
-    keep_only_the_largest_connected_component, lane_to_street_graph,
+    keep_only_the_largest_connected_component,
+    get_enriched_street_graph
 )
-
 from shapely.geometry import Polygon
 from ebike_city_tools.iterative_algorithms import topdown_betweenness_pareto, betweenness_pareto
 from ebike_city_tools.od_utils import extend_od_circular
@@ -26,11 +24,11 @@ from ebike_city_tools.app_utils import (
     compute_nr_variables,
     recreate_lane_graph,
     get_degree_ratios,
-    get_network_bearings,
+    get_network_bearings, recreate_lane_graph_df,
 )
 from ebike_city_tools.metrics import compute_travel_times_in_graph
 from ebike_city_tools.eval_utils import calculate_bci, calculate_bsl, calculate_lts, calculate_blos, \
-    calculate_porter_index, calculate_weikl_index
+    calculate_porter_index, calculate_weikl_index, write_baseline_evals_to_db
 
 # Set to True if you want to use the Database - otherwise, everything will just be saved in a dictionary
 DB_LOGIN_PATH = os.path.join(os.path.dirname(__file__), "dblogin_ikgpgis.json")
@@ -55,7 +53,7 @@ algorithm_dict = {
     "betweenness_cartime": (betweenness_pareto, {"betweenness_attr": "car_time"}),
     "betweenness_biketime": (betweenness_pareto, {"betweenness_attr": "bike_time"}),
 }
-
+# contextual data columns relevant for the baseline evaluations.
 SPEED_COL = 'temporeg00'
 TRAFFIC_COL = 'AADT_all_veh'
 TRAFFIC_COLS = ['AADT_articulated_truck_veh', 'AADT_truck_veh', 'AADT_delivery_veh']
@@ -69,8 +67,6 @@ BIKE_PARKING_COL = "anzahl_pp"
 BIKELANE_WIDTH_COL = 'ln_desc_width_cycling_m'
 MOTORIZED_WIDTH_COL = 'ln_desc_width_motorized_m'
 BIKELANE_COL = 'ln_desc_after'
-placeholder_network = gpd.read_file('<local_file>') # temporarily use local file to replace edge df from the db.
-
 
 app = Flask(__name__)
 CORS(app, origins=["*", "null"])  # allowing any origin as well as localhost (null)
@@ -80,6 +76,7 @@ db_connector = get_database_connector(DB_LOGIN_PATH)
 zurich_edges = gpd.read_postgis("SELECT * FROM zurich.edges" + FULL_GRAPH, db_connector, geom_col="geometry").set_index(
     ["u", "v"]
 )
+
 zurich_nodes = gpd.read_postgis(
     "SELECT * FROM zurich.nodes" + FULL_GRAPH, db_connector, geom_col="geometry", index_col="osmid"
 )
@@ -120,23 +117,19 @@ for name, query in queries.items():
 overview = "\n".join([f"{name}: {len(df)} features" for name, df in context_datasets.items()])
 print("Loaded contextual data for Zurich:\n" + overview)
 
-
 @app.route("/get_bci", methods=["GET"])
 def get_bci_evaluation():
     try:
         connector = get_database_connector(DB_LOGIN_PATH)
-        project_id = 203  # int(request.args.get("project_id"))
-        run_id = 1  # request.args.get("run_name")
+        project_id = 203 #int(request.args.get("project_id"))
+        run_id = 1 #request.args.get("run_name")
 
         project_edges = pd.read_sql(f"SELECT * FROM {SCHEMA}.edges WHERE id_prj = {project_id}", connector)
         run_output = pd.read_sql(
             f"SELECT * FROM {SCHEMA}.runs_optimized WHERE id_prj = {project_id} AND id_run = {run_id}", connector)
 
-        # lane_graph = recreate_lane_graph(project_edges, run_output)
-        # street_graph = lane_to_street_graph(lane_graph)
-
-        street_graph = placeholder_network  # to test eval methods
-        street_graph['index'] = street_graph.index
+        lane_graph = recreate_lane_graph_df(project_edges, run_output)
+        street_graph = get_enriched_street_graph(lane_graph, zurich_edges)
 
         edges_bci = calculate_bci(street_graph,
                                   BIKELANE_COL,
@@ -149,7 +142,9 @@ def get_bci_evaluation():
                                   context_datasets['speed_limits'],
                                   SPEED_COL)
 
-        return jsonify({"edges_bci": list(edges_bci['bci'])}), 200
+        bci_db = write_baseline_evals_to_db(edges_bci, run_id, project_id, 'bci', connector, SCHEMA)
+
+        return jsonify({"edges_bci": bci_db.to_dict(orient='records')}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -165,11 +160,8 @@ def get_bsl_evaluation():
         run_output = pd.read_sql(
             f"SELECT * FROM {SCHEMA}.runs_optimized WHERE id_prj = {project_id} AND id_run = {run_id}", connector)
 
-        #lane_graph = recreate_lane_graph(project_edges, run_output)
-        #street_graph = lane_to_street_graph(lane_graph)
-
-        street_graph = placeholder_network  # to test eval methods
-        street_graph['index'] = street_graph.index
+        lane_graph = recreate_lane_graph_df(project_edges, run_output)
+        street_graph = get_enriched_street_graph(lane_graph, zurich_edges)
 
         edges_bsl = calculate_bsl(street_graph,
                                   BIKELANE_COL,
@@ -180,7 +172,9 @@ def get_bsl_evaluation():
                                   TRAFFIC_COL
                                   )
 
-        return jsonify({"edges_bci": list(edges_bsl['bsl'])}), 200
+        bsl_db = write_baseline_evals_to_db(edges_bsl, run_id, project_id, 'bsl', connector, SCHEMA)
+
+        return jsonify({"edges_bsl": bsl_db.to_dict(orient='records')}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -196,11 +190,8 @@ def get_lts_evaluation():
         run_output = pd.read_sql(
             f"SELECT * FROM {SCHEMA}.runs_optimized WHERE id_prj = {project_id} AND id_run = {run_id}", connector)
 
-        #lane_graph = recreate_lane_graph(project_edges, run_output)
-        #street_graph = lane_to_street_graph(lane_graph)
-
-        street_graph = placeholder_network  # to test eval methods
-        street_graph['index'] = street_graph.index
+        lane_graph = recreate_lane_graph_df(project_edges, run_output)
+        street_graph = get_enriched_street_graph(lane_graph, zurich_edges)
 
         edges_lts = calculate_lts(street_graph,
                                   BIKELANE_COL,
@@ -210,7 +201,9 @@ def get_lts_evaluation():
                                   TRAFFIC_COL
                                   )
 
-        return jsonify({"edges_lts": list(edges_lts['lts'])}), 200
+        lts_db = write_baseline_evals_to_db(edges_lts, run_id, project_id, 'lts', connector, SCHEMA)
+
+        return jsonify({"edges_lts": lts_db.to_dict(orient='records')}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -226,11 +219,8 @@ def get_blos_evaluation():
         run_output = pd.read_sql(
             f"SELECT * FROM {SCHEMA}.runs_optimized WHERE id_prj = {project_id} AND id_run = {run_id}", connector)
 
-        #lane_graph = recreate_lane_graph(project_edges, run_output)
-        #street_graph = lane_to_street_graph(lane_graph)
-
-        street_graph = placeholder_network  # to test eval methods
-        street_graph['index'] = street_graph.index
+        lane_graph = recreate_lane_graph_df(project_edges, run_output)
+        street_graph = get_enriched_street_graph(lane_graph, zurich_edges)
 
         edges_blos = calculate_blos(street_graph,
                                     BIKELANE_COL,
@@ -242,8 +232,9 @@ def get_blos_evaluation():
                                     context_datasets['surface'],
                                     SURFACE_COL
                                     )
+        blos_db = write_baseline_evals_to_db(edges_blos, run_id, project_id, 'blos_grade', connector, SCHEMA)
 
-        return jsonify({"edges_blos": list(edges_blos['blos'])}), 200
+        return jsonify({"edges_blos": blos_db.to_dict(orient='records')}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -259,11 +250,8 @@ def get_porter_evaluation():
         run_output = pd.read_sql(
             f"SELECT * FROM {SCHEMA}.runs_optimized WHERE id_prj = {project_id} AND id_run = {run_id}", connector)
 
-        #lane_graph = recreate_lane_graph(project_edges, run_output)
-        #street_graph = lane_to_street_graph(lane_graph)
-
-        street_graph = placeholder_network # to test eval methods
-        street_graph['index'] = street_graph.index
+        lane_graph = recreate_lane_graph_df(project_edges, run_output)
+        street_graph = get_enriched_street_graph(lane_graph, zurich_edges)
 
         edges_porter = calculate_porter_index(
             street_graph,
@@ -277,8 +265,9 @@ def get_porter_evaluation():
             context_datasets['air_quality'],
             AIR_COL
         )
+        porter_db = write_baseline_evals_to_db(edges_porter, run_id, project_id, 'porter', connector, SCHEMA)
 
-        return jsonify({"edges_porter": list(edges_porter['porter'])}), 200
+        return jsonify({"edges_porter": porter_db.to_dict(orient='records')}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -294,11 +283,8 @@ def get_weikl_evaluation():
         run_output = pd.read_sql(
             f"SELECT * FROM {SCHEMA}.runs_optimized WHERE id_prj = {project_id} AND id_run = {run_id}", connector)
 
-        #lane_graph = recreate_lane_graph(project_edges, run_output)
-        #street_graph = lane_to_street_graph(lane_graph)
-
-        street_graph = placeholder_network  # to test eval methods
-        street_graph['index'] = street_graph.index
+        lane_graph = recreate_lane_graph_df(project_edges, run_output)
+        street_graph = get_enriched_street_graph(lane_graph, zurich_edges)
 
         edges_weikl = calculate_weikl_index(
             street_graph,
@@ -314,11 +300,13 @@ def get_weikl_evaluation():
             SURFACE_COL,
             context_datasets['green_spaces'],
             context_datasets['noise_pollution'],
+            NOISE_COL,
             context_datasets['air_quality'],
             AIR_COL
         )
+        weikl_db = write_baseline_evals_to_db(edges_weikl, run_id, project_id, 'weikl', connector, SCHEMA)
 
-        return jsonify({"edges_weikl": list(edges_weikl['weikl'])}), 200
+        return jsonify({"edges_weikl": weikl_db.to_dict(orient='records')}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
