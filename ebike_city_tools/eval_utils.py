@@ -3,6 +3,7 @@ from sklearn.preprocessing import MinMaxScaler
 import numpy as np
 import geopandas as gpd
 from typing import Union, Any
+from sqlalchemy.types import Text
 
 
 def calculate_lts(
@@ -144,8 +145,6 @@ def calculate_bci(
     df['side_parking_bool'] = df[lane_col].apply(lambda x: count_characters(x, "RND") > 0)
     df['bike_lane_width'] = np.where((df[bike_lane_width_col] == 0) & (df['bike_lane_bool'] == 1), 1.5,
                                      df[bike_lane_width_col])
-
-    print('so far so good')
     df['curb_lane_width'] = df[motorized_width_col] / df['car_lane_n']
     df['curb_lane_vol'] = df[traffic_col] / df['car_lane_n']
 
@@ -655,4 +654,16 @@ def merge_spatial_share(
     edges.drop(columns=['overlap_sum'], inplace=True)
 
     return edges
+
+
+def write_baseline_evals_to_db(edges, run_id, project_id, eval_type, connector, schema, table_name="baseline_evals"):
+    eval_edges = edges[['source', 'target']].copy()
+    eval_edges.loc[:, "id_run"] = run_id
+    eval_edges.loc[:, "id_prj"] = project_id
+    eval_edges.loc[:, "eval_type"] = eval_type
+    eval_edges.loc[:, "eval"] = edges[eval_type]
+
+    eval_edges.to_sql(table_name, connector, schema=schema, if_exists="append", index=False, dtype={"eval": Text()})
+
+    return eval_edges
 
