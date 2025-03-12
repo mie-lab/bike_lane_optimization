@@ -6,7 +6,7 @@ import pandas as pd
 import numpy as np
 from flask import Flask, jsonify, request
 from flask_cors import CORS, cross_origin  # needs to be installed via pip install flask-cors
-
+import logging
 from sqlalchemy.orm import sessionmaker
 
 
@@ -95,6 +95,19 @@ print("Loaded OD matrix for Zurich", len(od_zurich))
 # project_dict = {}
 
 
+# Set up a logger
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
+logger = logging.getLogger(__name__)
+
+
+@app.before_request
+def log_request_info():
+    logger.info(f"Incoming request: {request.method} {request.url}")
+    logger.info(f"Headers: {dict(request.headers)}")
+    if request.method in ["POST", "PUT", "PATCH"]:
+        logger.info(f"Body: {request.get_data()}")
+
+
 @app.route("/construct_graph", methods=["POST"])
 def generate_input_graph():
     """
@@ -127,25 +140,6 @@ def generate_input_graph():
     if len(zurich_edges_area) == 0:
         return (jsonify("No edges found in this area. Try with other coordinates."), 400)
 
-    connector = get_database_connector(DB_LOGIN_PATH)
-
-    # Create a new project
-    session = None
-    try:
-        Session = sessionmaker(bind=connector)
-        session = Session()
-        cursor = session.connection().connection.cursor()
-        cursor.execute(f"INSERT INTO webapp.projects (prj_name) VALUES ('{project_name}') RETURNING id")
-        project_id = cursor.fetchone()[0]
-        session.commit()
-    except Exception as e:
-        if session:
-            session.rollback()
-        return jsonify({"error": str(e)}), 500
-    finally:
-        if session:
-            session.close()
-
     # create OD matrix
     if od_creation_mode == "fast":
         od = generate_od_nodes(od_zurich, zurich_nodes_area)
@@ -177,6 +171,27 @@ def generate_input_graph():
     runtime_min = get_expected_time(nr_variables)
 
     # save nodes for the geometry
+
+    connector = get_database_connector(DB_LOGIN_PATH)
+    # Create a new project
+    session = None
+    try:
+        Session = sessionmaker(bind=connector)
+        session = Session()
+        cursor = session.connection().connection.cursor()
+        cursor.execute(
+            f"INSERT INTO webapp.projects (prj_name, runtime_min) VALUES ('{project_name}', {np.round(runtime_min,2)}) RETURNING id"
+        )
+        project_id = cursor.fetchone()[0]
+        session.commit()
+    except Exception as e:
+        if session:
+            session.rollback()
+        return jsonify({"error": str(e)}), 500
+    finally:
+        if session:
+            session.close()
+
     area_polygon["id_prj"] = project_id
     area_polygon.to_postgis(f"bounds", connector, schema=SCHEMA, if_exists="append", index=False)
 
@@ -336,67 +351,11 @@ def optimize():
     pareto_df["car_time_change"] = (pareto_df["car_time"] - base_car) / base_car * 100
     pareto_df["bike_time_change"] = (pareto_df["bike_time"] - base_bike) / base_bike * 100
 
+    connector = get_database_connector(DB_LOGIN_PATH)
     run_list.to_sql(f"runs", connector, schema=SCHEMA, if_exists="append", index=False)
 
     result_graph_edges.to_sql(f"runs_optimized", connector, schema=SCHEMA, if_exists="append", index=False)
     pareto_df.to_sql(f"pareto", connector, schema=SCHEMA, if_exists="append", index=False)
-    session = None
-    try:
-
-        Session = sessionmaker(bind=connector)
-        session = Session()
-        cursor = session.connection().connection.cursor()
-        cursor.execute(
-            f"""
-            DROP VIEW IF EXISTS webapp.v_optimized;
-            CREATE OR REPLACE VIEW webapp.v_optimized
-            AS
-            WITH run_opt AS (
-                SELECT row_number() OVER () AS edge_id,
-                    id_prj,
-                    id_run,
-                    source,
-                    target,
-                    edge_key,
-                    lanetype,
-                    st_makeline(n1.geometry, n2.geometry) AS geometry
-                FROM webapp.runs_optimized
-                JOIN zurich.nodes n1 ON runs_optimized.source = n1.osmid
-                JOIN zurich.nodes n2 ON runs_optimized.target = n2.osmid
-                WHERE id_prj = {project_id} AND id_run = {run_id}
-            ),
-            edges AS (
-                SELECT DISTINCT source, target, distance, gradient, speed_limit
-                FROM webapp.edges
-                WHERE id_prj = {project_id}
-            )
-            SELECT row_number() OVER () AS edge_id,
-                t1.id_prj,
-                t1.id_run,
-                t1.edge_key,
-                t1.lanetype,
-                t1.source,
-                t1.target,
-                t2.distance,
-                t2.gradient,
-                t2.speed_limit,
-                t1.geometry
-            FROM run_opt t1
-            LEFT JOIN edges t2 ON t1.source = t2.source AND t1.target = t2.target;
-            GRANT ALL ON webapp.v_optimized TO postgres, selina, mbauckhage;
-            """
-        )
-        session.commit()
-    except Exception as e:
-        if session:
-            session.rollback()
-        return (
-            jsonify({"error": f"Failed to create view: {str(e)}"}),
-            500,
-        )
-    finally:
-        if session:
-            session.close()
 
     return (
         jsonify(
@@ -481,13 +440,11 @@ def get_pareto():
 @app.route("/get_complexity", methods=["GET"])
 def get_complexity():
     try:
-        connector = get_database_connector(DB_LOGIN_PATH)
-
         project_id = int(request.args.get("project_id"))
         run_id = request.args.get("run_name")
 
+        connector = get_database_connector(DB_LOGIN_PATH)
         project_edges = pd.read_sql(f"SELECT * FROM {SCHEMA}.edges WHERE id_prj = {project_id}", connector)
-        # project_od = pd.read_sql(f"SELECT * FROM {SCHEMA}.od WHERE id_prj = {project_id}", connector)
         run_output = pd.read_sql(
             f"SELECT * FROM {SCHEMA}.runs_optimized WHERE id_prj = {project_id} AND id_run = {run_id}", connector
         )
@@ -505,12 +462,11 @@ def get_complexity():
 @app.route("/get_network_bearing", methods=["GET"])
 def get_network_bearing():
     try:
-        connector = get_database_connector(DB_LOGIN_PATH)
         project_id = int(request.args.get("project_id"))
         run_id = request.args.get("run_name")
 
+        connector = get_database_connector(DB_LOGIN_PATH)
         project_edges = pd.read_sql(f"SELECT * FROM {SCHEMA}.edges WHERE id_prj = {project_id}", connector)
-        # project_od = pd.read_sql(f"SELECT * FROM {SCHEMA}.od WHERE id_prj = {project_id}", connector)
         run_output = pd.read_sql(
             f"SELECT * FROM {SCHEMA}.runs_optimized WHERE id_prj = {project_id} AND id_run = {run_id}", connector
         )
@@ -518,11 +474,11 @@ def get_network_bearing():
         # load nodes from database
         nodes_zurich = pd.read_sql(
             f"""
-            SELECT z.osmid, z.x, z.y
-            FROM zurich.nodes AS z
-            JOIN  webapp.edges AS w ON w.source = z.osmid OR w.target = z.osmid
-            WHERE w.id_prj = {project_id}
-            """,
+                SELECT z.osmid, z.x, z.y
+                FROM zurich.nodes{FULL_GRAPH} AS z
+                JOIN  webapp.edges AS w ON w.source = z.osmid OR w.target = z.osmid
+                WHERE w.id_prj = {project_id}
+                """,
             connector,
         )
 
@@ -552,9 +508,11 @@ def get_network_bearing():
 def get_projects():
     try:
         connector = get_database_connector(DB_LOGIN_PATH)
-        projects = pd.read_sql("SELECT id, prj_name, created FROM webapp.projects", connector)
-        projects_json = projects.to_dict(orient="records")
+        projects = pd.read_sql("SELECT id, prj_name, created, runtime_min FROM webapp.projects", connector)
+        replaced_df = projects.replace({np.nan: None})
+        projects_json = replaced_df.to_dict(orient="records")
         return jsonify({"projects": projects_json}), 200
+
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -562,116 +520,60 @@ def get_projects():
 @app.route("/get_runs", methods=["GET"])
 def get_runs():
     project_id = request.args.get("project_id")
-    connector = get_database_connector(DB_LOGIN_PATH)
     try:
+        connector = get_database_connector(DB_LOGIN_PATH)
         runs = pd.read_sql(f"SELECT * FROM webapp.runs WHERE id_prj = {project_id}", connector)
         runs_json = runs.to_dict(orient="records")
         return jsonify({"runs": runs_json}), 200
+
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 
-@app.route("/create_view", methods=["POST"])
-def create_view():
-    # get input arguments
+@app.route("/getBoundingBox", methods=["GET"])
+def get_bounding_box():
     project_id = request.args.get("project_id")
-    run_id = request.args.get("run_id", 1)
-    layer = request.args.get("layer", "v_optimized")
+    bbox_params = None  # Initialize bbox_params to None
 
-    # create a view in the database
     session = None
+
+    sql_statement = f"""
+        SELECT bbox_east, bbox_south, bbox_west, bbox_north
+        FROM webapp.v_bound
+        WHERE id_prj = {project_id};"""
+
     try:
         connector = get_database_connector(DB_LOGIN_PATH)
         Session = sessionmaker(bind=connector)
         session = Session()
         cursor = session.connection().connection.cursor()
-        if layer == "v_optimized":
-            sql_statement = f"""
-            DROP VIEW IF EXISTS webapp.v_optimized;
-            CREATE OR REPLACE VIEW webapp.v_optimized
-            AS
-            WITH run_opt AS (
-                SELECT row_number() OVER () AS edge_id,
-                    id_prj,
-                    id_run,
-                    source,
-                    target,
-                    edge_key,
-                    lanetype,
-                    st_makeline(n1.geometry, n2.geometry) AS geometry
-                FROM webapp.runs_optimized
-                JOIN zurich.nodes n1 ON runs_optimized.source = n1.osmid
-                JOIN zurich.nodes n2 ON runs_optimized.target = n2.osmid
-                WHERE id_prj = {project_id} AND id_run = {run_id}
-            ),
-            edges AS (
-                SELECT DISTINCT source, target, distance, gradient, speed_limit
-                FROM webapp.edges
-                WHERE id_prj = {project_id}
-            )
-            SELECT row_number() OVER () AS edge_id,
-                t1.id_prj,
-                t1.id_run,
-                t1.edge_key,
-                t1.lanetype,
-                t1.source,
-                t1.target,
-                t2.distance,
-                t2.gradient,
-                t2.speed_limit,
-                t1.geometry
-            FROM run_opt t1
-            LEFT JOIN edges t2 ON t1.source = t2.source AND t1.target = t2.target;
-            GRANT ALL ON webapp.v_optimized TO postgres, selina, mbauckhage;
-            """
-            cursor.execute(sql_statement)
-            session.commit()
-        elif layer == "v_bound":
-            cursor.execute(
-                f"""
-                DROP VIEW IF EXISTS webapp.v_bound;
-                CREATE OR REPLACE VIEW webapp.v_bound
-                AS
-                SELECT id, 
-                    id_prj, 
-                    ST_XMin(ST_Extent(geometry)) AS bbox_east, 
-                    ST_YMin(ST_Extent(geometry)) AS bbox_south, 
-                    ST_XMax(ST_Extent(geometry)) AS bbox_west, 
-                    ST_YMax(ST_Extent(geometry)) AS bbox_north,
-                    geometry
-                FROM webapp.bounds
-                WHERE bounds.id_prj = {project_id}
-                GROUP BY id, id_prj;
-                GRANT ALL ON webapp.v_bound TO postgres, selina, mbauckhage;
-                
-                SELECT bbox_east, bbox_south, bbox_west, bbox_north
-                FROM webapp.v_bound
-                WHERE id_prj = {project_id};"""
-            )
 
-            session.commit()
-            bbox_result = cursor.fetchone()
+        cursor.execute(sql_statement)
+
+        bbox_result = cursor.fetchone()
+        if bbox_result:
             bbox_params = {
                 "bbox_east": bbox_result[0],
                 "bbox_south": bbox_result[1],
                 "bbox_west": bbox_result[2],
                 "bbox_north": bbox_result[3],
             }
-
     except Exception as e:
         if session:
             session.rollback()
-        return (
-            jsonify({"error": f"Failed to create view: {str(e)}"}),
-            500,
-        )
+        return jsonify({"error": f"Failed to get Bounding Box: {str(e)}"}), 500
     finally:
         if session:
             session.close()
-        if layer == "v_bound":
-            return jsonify({"message": f"View created successfully", "bounding_box": bbox_params}), 200
+
+        if bbox_params:
+            return jsonify({"message": "Bounding box retrieved successfully", "bounding_box": bbox_params}), 200
         else:
-            return jsonify({"message": f"View created successfully"}), 200
+            return jsonify({"message": "No bounding box found"}), 200
+
+
+def create_app():
+    return app
 
 
 if __name__ == "__main__":
