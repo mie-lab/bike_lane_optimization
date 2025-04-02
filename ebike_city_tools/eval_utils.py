@@ -6,6 +6,27 @@ from typing import Union, Any
 from sqlalchemy.types import Text
 
 
+def get_expected_runtime(edges_df: gpd.GeoDataFrame, eval_metric: str) -> float:
+
+    num_rows = len(edges_df)
+    scaling_factors = {
+        'bci': 0.0026,
+        'lts': 0.0008,
+        'blos': 0.0013,
+        'bls': 0.0020,
+        'porter': 0.0152,
+        'weikl': 0.0168
+    }
+
+    if eval_metric not in scaling_factors:
+        raise ValueError(f"Unknown evaluation metric: {eval_metric}")
+
+    scaling_factor = scaling_factors[eval_metric]
+    expected_runtime = scaling_factor * num_rows
+
+    return expected_runtime
+
+
 def calculate_lts(
         edges_df: gpd.GeoDataFrame,
         lane_col: str,
@@ -639,9 +660,9 @@ def merge_spatial_share(
         edges[target_col] = 0
         return edges
 
-    if edges.geometry.type[0] == 'LineString':
+    if edges.geometry.type.iloc[0] == 'LineString':
         overlaps['overlap'] = overlaps.geometry.length
-    elif edges.geometry.type[0] == 'Polygon':
+    elif edges.geometry.type.iloc[0] == 'Polygon':
         overlaps['overlap'] = overlaps.geometry.area
 
     overlap_sums = overlaps.groupby(merge_col)['overlap'].sum().rename('overlap_sum')
