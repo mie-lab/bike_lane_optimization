@@ -28,7 +28,11 @@ from ebike_city_tools.app_utils import (
 )
 from ebike_city_tools.metrics import compute_travel_times_in_graph
 from ebike_city_tools.eval_utils import calculate_bci, calculate_bsl, calculate_lts, calculate_blos, \
-    calculate_porter_index, calculate_weikl_index, write_baseline_evals_to_db
+    calculate_porter_index, calculate_weikl_index, write_baseline_evals_to_db, calculate_buffer, \
+    merge_spatial_attribute, calculate_bikelane_density, merge_spatial_share, merge_spatial_count, avg_no2, \
+    count_characters, calculate_land_use_mix, merge_spatial_boolean, calculate_count, calculate_bike_lane_presence, \
+    merge_distance_to_nearest, calculate_bike_and_car_travel_time, calculate_intersection_density, enrich_network, \
+    get_edge_ranking, filter_metrics, write_anp_weights_to_db
 
 # Set to True if you want to use the Database - otherwise, everything will just be saved in a dictionary
 DB_LOGIN_PATH = os.path.join(os.path.dirname(__file__), "dblogin_ikgpgis.json")
@@ -56,10 +60,11 @@ algorithm_dict = {
 # contextual data columns relevant for the baseline evaluations.
 SPEED_COL = 'temporeg00'
 TRAFFIC_COL = 'AADT_all_veh'
+TRAFFIC_PERSONAL_COL = 'AADT_personal_veh'
 TRAFFIC_COLS = ['AADT_articulated_truck_veh', 'AADT_truck_veh', 'AADT_delivery_veh']
 LANDUSE_COL = 'typ'
 SURFACE_COL = 'belagsart'
-SLOPE_COL = 'steigung'
+SLOPE_COL = 'steigung_absolut'
 POP_COL = 'PERS_N'
 AIR_COL = 'no2'
 NOISE_COL = "lre_tag"
@@ -67,6 +72,9 @@ BIKE_PARKING_COL = "anzahl_pp"
 BIKELANE_WIDTH_COL = 'ln_desc_width_cycling_m'
 MOTORIZED_WIDTH_COL = 'ln_desc_width_motorized_m'
 BIKELANE_COL = 'ln_desc_after'
+ANP_COL = 'anp'
+BETWEENESS_COL = 'BetweenessCentrality'
+AVG_NODE_DEGREE_COL = 'NodeDegree'
 
 app = Flask(__name__)
 CORS(app, origins=["*", "null"])  # allowing any origin as well as localhost (null)
@@ -102,8 +110,21 @@ queries = {
     "street_lighting": "SELECT * FROM zurich.street_lighting",
     "surface": "SELECT * FROM zurich.surface",
     "traffic_volume": "SELECT * FROM zurich.traffic_volume",
-    "tree_canopy": "SELECT * FROM zurich.tree_canopy"
+    "tree_canopy": "SELECT * FROM zurich.tree_canopy",
+    "network_centralities": "SELECT * FROM zurich.network_centralities"
 }
+
+metrics = pd.read_sql("SELECT * FROM zurich.metrics", db_connector)
+remove_columns = [
+        'BuildingCondition', 'ObstaclePresence', 'DistanceToBikeLaneWithoutExclusivess',
+        'SafetySupportedIntersectionShare', 'IllegalSideParkingDensity', 'SignageRatio',
+        'SidewalkWidth', 'SeparatedBikeLaneDensity', 'BikeLaneType', 'RoadType',
+        'BusAndCarTrafficVolumeRatio', 'BikeParkingType', 'OfficialBikeNetworkShare',
+        'DetourFactor'
+    ]
+metrics = filter_metrics(metrics, occurrence=2, remove_columns=remove_columns)
+criteria_keys = sorted(metrics['criteria_type'].unique())
+metric_keys = sorted(metrics['metric_type'].unique())
 
 # Load each dataset into a dictionary
 context_datasets = {}
@@ -117,12 +138,55 @@ for name, query in queries.items():
 overview = "\n".join([f"{name}: {len(df)} features" for name, df in context_datasets.items()])
 print("Loaded contextual data for Zurich:\n" + overview)
 
+
+@app.route("/get_anp", methods=["GET"])
+def get_anp_evaluation():
+    try:
+        connector = get_database_connector(DB_LOGIN_PATH)
+        project_id = 207
+        run_id = 1
+
+        project_edges = pd.read_sql(f"SELECT * FROM {SCHEMA}.edges WHERE id_prj = {project_id}", connector)
+        run_output = pd.read_sql(
+            f"SELECT * FROM {SCHEMA}.runs_optimized WHERE id_prj = {project_id} AND id_run = {run_id}", connector)
+
+        lane_graph = recreate_lane_graph_df(project_edges, run_output)
+        street_graph = get_enriched_street_graph(lane_graph, zurich_edges)
+        street_graph = enrich_network(street_graph,
+                                      context_datasets,
+                                      BIKELANE_WIDTH_COL,
+                                      BIKELANE_COL,
+                                      TRAFFIC_COL,
+                                      TRAFFIC_COLS,
+                                      TRAFFIC_PERSONAL_COL,
+                                      AIR_COL,
+                                      SLOPE_COL,
+                                      SPEED_COL,
+                                      SURFACE_COL,
+                                      LANDUSE_COL,
+                                      POP_COL,
+                                      BIKE_PARKING_COL,
+                                      BETWEENESS_COL,
+                                      AVG_NODE_DEGREE_COL)
+
+        edge_rankings, limit_matrix_df = get_edge_ranking(street_graph, metrics)
+        street_graph[ANP_COL] = edge_rankings
+
+        anp_db = write_baseline_evals_to_db(street_graph, run_id, project_id, 'anp', connector, SCHEMA)
+        weights_db = write_anp_weights_to_db(limit_matrix_df, criteria_keys, metric_keys, run_id, project_id, connector,
+                                         SCHEMA, table_name="anp_weights")
+
+        return jsonify({"edges_anp": anp_db.to_dict(orient='records'), 'weights': weights_db.to_dict(orient='records')}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/get_bci", methods=["GET"])
 def get_bci_evaluation():
     try:
         connector = get_database_connector(DB_LOGIN_PATH)
-        project_id = 203 #int(request.args.get("project_id"))
-        run_id = 1 #request.args.get("run_name")
+        project_id = int(request.args.get("project_id"))
+        run_id = request.args.get("run_name")
 
         project_edges = pd.read_sql(f"SELECT * FROM {SCHEMA}.edges WHERE id_prj = {project_id}", connector)
         run_output = pd.read_sql(
@@ -141,7 +205,6 @@ def get_bci_evaluation():
                                   TRAFFIC_COL,
                                   context_datasets['speed_limits'],
                                   SPEED_COL)
-
         bci_db = write_baseline_evals_to_db(edges_bci, run_id, project_id, 'bci', connector, SCHEMA)
 
         return jsonify({"edges_bci": bci_db.to_dict(orient='records')}), 200
@@ -171,7 +234,6 @@ def get_bsl_evaluation():
                                   context_datasets['traffic_volume'],
                                   TRAFFIC_COL
                                   )
-
         bsl_db = write_baseline_evals_to_db(edges_bsl, run_id, project_id, 'bsl', connector, SCHEMA)
 
         return jsonify({"edges_bsl": bsl_db.to_dict(orient='records')}), 200
@@ -200,7 +262,6 @@ def get_lts_evaluation():
                                   context_datasets['traffic_volume'],
                                   TRAFFIC_COL
                                   )
-
         lts_db = write_baseline_evals_to_db(edges_lts, run_id, project_id, 'lts', connector, SCHEMA)
 
         return jsonify({"edges_lts": lts_db.to_dict(orient='records')}), 200
