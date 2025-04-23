@@ -1,9 +1,18 @@
 import pandas as pd
+import scipy
+from pandas import DataFrame
 from sklearn.preprocessing import MinMaxScaler
 import numpy as np
 import geopandas as gpd
 from typing import Union, Any
 from sqlalchemy.types import Text
+from scipy.stats import entropy
+from shapely import LineString, Point
+from numpy.typing import NDArray
+from scipy.sparse import csr_matrix
+from scipy.sparse.linalg import norm as sparse_norm
+import numpy as np
+import scipy.linalg
 
 
 def get_expected_runtime(edges_df: gpd.GeoDataFrame, eval_metric: str) -> float:
@@ -605,6 +614,20 @@ def merge_spatial_boolean(
     return edges
 
 
+def merge_distance_to_nearest(
+        edges: gpd.GeoDataFrame,
+        spatial_data: gpd.GeoDataFrame,
+        target_col: str,
+        merge_col: str = "index",
+        how: str = "intersection"
+) -> DataFrame:
+    nearest_stops = gpd.sjoin_nearest(edges, spatial_data, how=how, distance_col=target_col)
+    nearest_stops = nearest_stops.drop_duplicates(subset=merge_col)
+    edges = edges.merge(nearest_stops[[merge_col, target_col]], on=merge_col)
+
+    return edges
+
+
 def merge_spatial_count(
         buff_edges: gpd.GeoDataFrame,
         edges: gpd.GeoDataFrame,
@@ -688,3 +711,428 @@ def write_baseline_evals_to_db(edges, run_id, project_id, eval_type, connector, 
 
     return eval_edges
 
+def write_anp_weights_to_db(limit_matrix_df, criteria_keys, metric_keys, run_id, project_id, connector, schema, table_name="anp_weights"):
+
+    metric_weights = limit_matrix_df.iloc[len(criteria_keys):len(criteria_keys) + len(metric_keys), 0]
+    metric_weights = metric_weights / metric_weights.sum()
+
+    criteria_weights = limit_matrix_df.iloc[0:len(criteria_keys), 0]
+    criteria_weights = criteria_weights / criteria_weights.sum()
+
+    combined_weights = pd.concat([criteria_weights, metric_weights], axis=0)
+    combined_weights.index = criteria_keys + metric_keys
+    combined_weights = combined_weights.reset_index()
+    combined_weights.columns = ['metric_or_criteria', 'weight']
+
+    combined_weights['eval_element'] = ['criterion'] * len(criteria_keys) + ['metric'] * len(metric_keys)
+    combined_weights['id_run'] = run_id
+    combined_weights['id_prj'] = project_id
+
+    combined_weights.to_sql(table_name, connector, schema=schema, if_exists="append", index=False)
+
+    return combined_weights
+
+
+
+def calculate_bikelane_density(edges, buffer, bike_lanes, bikelane_col):
+    """Calculate bikelane density in buffered area."""
+
+    overlaps = gpd.overlay(buffer, bike_lanes, how="intersection", keep_geom_type=False)
+    overlaps['overlap_length'] = overlaps.geometry.length
+    overlap_sums = overlaps.groupby('index')['overlap_length'].sum().rename('overlap_length_sum')
+    edges = edges.merge(overlap_sums, on='index', how='left')
+    edges[bikelane_col] = (edges['overlap_length_sum'] / (buffer['buff_area'] / 1e6)).fillna(0)
+    edges = edges.drop(columns=['overlap_length_sum'])
+
+    return edges
+
+
+def calculate_land_use_mix(buffer, edges, landuse, landuse_col):
+    """Calculate land use mix - Shannon's Entropy"""
+
+    def calculate_shannon_entropy(proportions):
+        return entropy(proportions, base=np.e)
+
+    intersected = gpd.overlay(landuse, buffer, how='intersection')
+    intersected['area'] = intersected.geometry.area
+    land_use_areas = intersected.groupby(['index', 'typ'])['area'].sum().reset_index()
+    total_area = land_use_areas.groupby('index')['area'].sum().rename('total_area')
+    land_use_areas = land_use_areas.join(total_area, on='index')
+    land_use_areas['proportion'] = land_use_areas['area'] / land_use_areas['total_area']
+
+    edges_entropy = land_use_areas.groupby('index')['proportion'].apply(calculate_shannon_entropy).reset_index()
+    edges_entropy = edges_entropy.rename(columns={'proportion': landuse_col})
+    edges = edges.merge(edges_entropy, on='index', how='left')
+    edges[landuse_col] = edges[landuse_col].fillna(0)
+
+    return edges
+
+
+def calculate_bike_lane_presence(value):
+    value_map = {'P': 1, 'X': 0.75, 'L': 0.5}
+    if isinstance(value, str):
+        values = [value_map[char] for char in value_map if char in value]
+        if values:
+            return sum(values) / len(values)
+        else:
+            return 0
+
+def calculate_bike_and_car_travel_time(edges, bike_speed, speed_col, bike_car_ratio_col):
+    """Calculate car and bike travel speed."""
+    edges['length_km'] = edges['length'] / 1000
+    edges[bike_car_ratio_col] = (edges['length_km'] / int(bike_speed)) / (edges['length_km'] / edges[speed_col])
+    edges = edges.drop(columns=['length_km'])
+
+    return edges
+
+
+def calculate_intersection_density(edges, buffer, intersection_col):
+    """Calculate network intersection density in buffered area."""
+
+    all_points = edges['geometry'].apply(lambda geom: [Point(geom.coords[0]), Point(geom.coords[-1])]).explode()
+    point_counts = all_points.value_counts()
+    degree_3_points = point_counts[point_counts == 3].index
+    degree_3_points_series = gpd.GeoSeries(degree_3_points, crs=edges.crs)
+    intersections = gpd.GeoDataFrame(geometry=degree_3_points_series)
+
+    edges = merge_spatial_count(buffer, edges, intersections, intersection_col)
+    edges[intersection_col] = edges[intersection_col] / (buffer['buff_area'] / 1e6)
+
+    return edges
+
+
+def enrich_network(street_graph,
+                   context_datasets,
+                   BIKELANE_WIDTH_COL,
+                   BIKELANE_COL,
+                   TRAFFIC_COL,
+                   TRAFFIC_COLS,
+                   TRAFFIC_PERSONAL_COL,
+                   AIR_COL,
+                   SLOPE_COL,
+                   SPEED_COL,
+                   SURFACE_COL,
+                   LANDUSE_COL,
+                   POP_COL, BIKE_PARKING_COL,
+                   BETWEENESS_COL,
+                   AVG_NODE_DEGREE_COL):
+
+    street_graph[BIKELANE_WIDTH_COL] = pd.to_numeric(street_graph[BIKELANE_WIDTH_COL], errors='coerce').fillna(0)
+    buffer = calculate_buffer(street_graph, 30)
+
+    # BIKE LANE INFO
+    street_graph['BikeLanePresence'] = street_graph[BIKELANE_COL].apply(calculate_bike_lane_presence)
+    street_graph['BikeLaneWidth'] = np.where(
+        (street_graph[BIKELANE_WIDTH_COL] == 0) & (street_graph['BikeLanePresence'] > 0), 1.5,
+        street_graph[BIKELANE_WIDTH_COL])
+    bike_lanes = street_graph[street_graph[BIKELANE_COL].str.contains("P", na=False)][['geometry', 'length']]
+    street_graph = calculate_bikelane_density(street_graph, buffer, bike_lanes, 'BikeLaneDensity')
+
+    # GREEN SPACE AND TREE CANOPY
+    street_graph = merge_spatial_share(street_graph, buffer, context_datasets['green_spaces'], 'GreenSpaceShare',
+                                       'buff_area', percent=True)
+    street_graph['GreeneryPresence'] = np.where(street_graph['GreenSpaceShare'] > 25, 1, 0)
+    street_graph = merge_spatial_share(street_graph, buffer, context_datasets['tree_canopy'], 'TreeCanopyCoverage',
+                                       'buff_area', percent=True)
+
+    # AIR QUALITY
+    street_graph = merge_spatial_count(buffer, street_graph, context_datasets['air_quality'],
+                                       'AirPolutantConcentration', agg_col=AIR_COL, agg_func=avg_no2)
+
+    # TRAFFIC VOLUME
+    street_graph = merge_spatial_attribute(buffer, street_graph, context_datasets['traffic_volume'], TRAFFIC_COL,
+                                           'MotorisedVehicleCount')
+    street_graph['MotorisedVehicleCount'] = street_graph.apply(
+        lambda row: 0 if not any(char in "MHTLSRNDO" for char in row[BIKELANE_COL]) else row['MotorisedVehicleCount'],
+        axis=1)
+    street_graph['BusAndCarTrafficVolumeRatio'] = context_datasets['traffic_volume'][TRAFFIC_COLS].sum(axis=1) / \
+                                                  context_datasets['traffic_volume'][TRAFFIC_PERSONAL_COL]
+    street_graph = merge_spatial_attribute(buffer, street_graph, context_datasets['speed_limits'], SPEED_COL,
+                                           'SpeedLimit')
+    street_graph['MotorisedTrafficSpeed'] = street_graph['SpeedLimit'] * 0.9
+    street_graph['CarLaneCount'] = street_graph[BIKELANE_COL].apply(lambda x: count_characters(str(x), "HMT"))
+    street_graph = calculate_bike_and_car_travel_time(street_graph, 15, 'MotorisedTrafficSpeed',
+                                                      'BikeAndCarTravelTimeRatio')
+
+    # SLOPE AND SURFACE
+    street_graph = merge_spatial_attribute(buffer, street_graph, context_datasets['slope'], SLOPE_COL, 'Slope')
+
+    street_graph = merge_spatial_attribute(buffer, street_graph, context_datasets['surface'], SURFACE_COL,
+                                           'BikeLaneSurfaceCondition')
+
+    # LANDUSE MIX
+    street_graph = calculate_land_use_mix(buffer, street_graph, context_datasets['landuse'], 'LandUseMix')
+    residential = context_datasets['landuse'][context_datasets['landuse'][LANDUSE_COL] == 'residential']
+    street_graph = merge_spatial_boolean(buffer, street_graph, residential, 'ResidentialAreaPresence', 'length',
+                                         threshold=75)
+    street_graph['ResidentialAreaPresence'] = street_graph['ResidentialAreaPresence'].astype(int)
+
+    # POPULATION
+    street_graph['PopulationDensity'] = calculate_count(buffer, context_datasets['population'], 'index', POP_COL) / (
+                buffer['buff_area'] / 1e6)
+
+    # DESTINATIONS
+    street_graph['DestinationDensity'] = calculate_count(buffer, context_datasets['pois'], 'index') / (
+                buffer['buff_area'] / 1e6)
+
+    # TRANSIT
+    street_graph = merge_distance_to_nearest(street_graph, context_datasets['pt_stops'], 'DistanceToTransitFacility',
+                                             merge_col='index', how='left')
+    street_graph['TransitFacilityDensity'] = calculate_count(buffer, context_datasets['pt_stops'], 'index') / (
+                buffer['buff_area'] / 1e6)
+
+    # BIKE PARKING
+    street_graph = merge_spatial_count(buffer, street_graph, context_datasets['bike_parking'], 'BikeParkingDensity',
+                                       agg_col=BIKE_PARKING_COL, agg_func="sum")
+
+    # SINUOSITY
+    street_graph['euclidean_dist'] = street_graph.geometry.apply(
+        lambda geo: LineString([geo.coords[0], geo.coords[-1]]).length)
+    street_graph['Sinuosity'] = street_graph['length'] / street_graph['euclidean_dist']
+    street_graph['Linearity'] = street_graph['Sinuosity']
+
+    # NETWORK
+    street_graph = calculate_intersection_density(street_graph, buffer, 'IntersectionDensity')
+    street_graph = merge_spatial_attribute(buffer, street_graph, context_datasets['network_centralities'],
+                                           BETWEENESS_COL, 'BetweenessCentrality')
+    street_graph = merge_spatial_attribute(buffer, street_graph, context_datasets['network_centralities'],
+                                           AVG_NODE_DEGREE_COL, 'NodeDegree')
+
+    return street_graph
+
+
+def power_method(matrix, num_iterations=1000, tolerance=1e-10):
+    n = matrix.shape[0]
+    x = np.ones(n)
+    for _ in range(num_iterations):
+        x_new = np.dot(matrix, x)
+        x_new_norm = np.linalg.norm(x_new)
+        x = x_new / x_new_norm
+        if np.linalg.norm(x_new - x_new_norm * x) < tolerance:
+            break
+    eigenvalue = np.dot(x.T, np.dot(matrix, x))
+    return eigenvalue, x
+
+
+def calculate_consistency_ratio(matrix):
+    def get_saaty_ri(n):
+        SAATY_RI = {
+            1: 0.00, 2: 0.00, 3: 0.58, 4: 0.90, 5: 1.12,
+            6: 1.24, 7: 1.32, 8: 1.41, 9: 1.45, 10: 1.49
+        }
+        return SAATY_RI.get(n, 1.98 * (n - 2) / n)
+
+    if matrix.shape[0] != matrix.shape[1]:
+        raise ValueError("Matrix must be square for consistency ratio calculation.")
+
+    # Check for zero or negative values
+    if np.any(matrix <= 0):
+        raise ValueError("Matrix contains zero or negative values, which are not allowed.")
+
+    # Use the power method to compute the dominant eigenvalue
+    lambda_max, _ = power_method(matrix)
+    n = matrix.shape[0]
+
+    CI = (lambda_max - n) / (n - 1)
+
+    if abs(CI) < 1e-10:
+        CI = 0
+
+    RI = get_saaty_ri(n)
+    CR = CI / RI if RI != 0 else 0
+
+    if abs(CR) < 1e-10:
+        CR = 0
+
+    return CR, lambda_max, CI, RI
+
+
+def calculate_criteria_metric_interaction_matrix(
+        metrics: pd.DataFrame,
+        group_col: str,
+        target_col: str
+) -> pd.DataFrame:
+
+    metric_frequency = metrics.groupby([group_col, target_col]).size().unstack(fill_value=0)
+    max_freq = metric_frequency.max().max()
+    min_freq = metric_frequency.min().min()
+    metric_frequency = 1 + 8 * (metric_frequency - min_freq) / (max_freq - min_freq)
+
+    criteria_to_metric = {}
+    for criterion in metric_frequency.columns:
+        frequencies = metric_frequency[criterion]
+        n = len(frequencies)
+
+        if n < 2:
+            priority_vector = np.ones(n) / n
+        else:
+            matrix = np.ones((n, n))
+
+            for i in range(n):
+                for j in range(n):
+                    if i != j and frequencies.iloc[i] > 0 and frequencies.iloc[j] > 0:
+                        matrix[i, j] = frequencies.iloc[i] / frequencies.iloc[j]
+
+            CR, lambda_max, CI, RI = calculate_consistency_ratio(matrix)
+            if CR > 0.1:
+                raise ValueError(f"Inconsistent PCM (CR = {CR:.2f}). Adjust frequency scaling.")
+
+            priority_vector = calculate_priority_vector(matrix)
+
+        criteria_to_metric[criterion] = priority_vector
+
+    return pd.DataFrame(criteria_to_metric, index=metric_frequency.index)
+
+
+def calculate_pairwise_comparison(
+    metrics: pd.DataFrame,
+    group_by_column: str,
+    target_column: str
+) -> tuple[np.ndarray, list]:
+
+    freq_dict = metrics[group_by_column].value_counts().to_dict()
+    min_freq = min(freq_dict.values())
+    max_freq = max(freq_dict.values())
+    freq_dict = {
+        k: 1 + 8 * (v - min_freq) / (max_freq - min_freq) if max_freq != min_freq else 1
+        for k, v in freq_dict.items()
+    }
+
+    log_freqs = {k: np.log1p(v) for k, v in freq_dict.items()}
+    grouped_data = metrics.groupby(group_by_column)[target_column].apply(set).to_dict()
+    sorted_keys = sorted(grouped_data.keys())
+    n = len(sorted_keys)
+    pcm_matrix = np.ones((n, n))
+
+    for i, key1 in enumerate(sorted_keys):
+        for j, key2 in enumerate(sorted_keys):
+            if i != j:
+                freq_ratio = log_freqs.get(key1, 1) / log_freqs.get(key2, 1)
+                pcm_matrix[i, j] = freq_ratio
+                pcm_matrix[j, i] = 1 / freq_ratio
+
+    CR, lambda_max, CI, RI = calculate_consistency_ratio(pcm_matrix)
+
+    if CR > 0.1:
+        raise ValueError(f"Inconsistent PCM (CR = {CR:.2f}). Adjust frequency scaling.")
+
+    return pcm_matrix, sorted_keys
+
+
+def calculate_priority_vector(
+        matrix: np.ndarray
+) -> np.ndarray:
+    # Use the power method to compute the dominant eigenvector
+    _, eigenvector = power_method(matrix)
+    return eigenvector / eigenvector.sum()
+
+def get_edge_ranking(edges, metrics):
+    criteria_matrix, criteria_keys = calculate_pairwise_comparison(metrics, 'criteria_type', 'metric_type')
+    metric_matrix, metric_keys = calculate_pairwise_comparison(metrics, 'metric_type', 'criteria_type')
+    criteria_to_metric = calculate_criteria_metric_interaction_matrix(metrics, 'metric_type', 'criteria_type')
+    metric_to_criteria = calculate_criteria_metric_interaction_matrix(metrics, 'criteria_type', 'metric_type')
+
+    edge_rankings, limit_matrix_df = perform_anp_bikeability_evaluation(edges,
+                                                                        criteria_matrix,
+                                                                        criteria_keys,
+                                                                        metric_matrix,
+                                                                        metric_keys,
+                                                                        criteria_to_metric,
+                                                                        metric_to_criteria)
+    return edge_rankings, limit_matrix_df
+
+
+def perform_anp_bikeability_evaluation(
+        edges: pd.DataFrame,
+        criteria_matrix: np.array,
+        criteria_keys: list,
+        metric_matrix: np.array,
+        metric_keys: list,
+        criteria_to_metric: np.array,
+        metric_to_criteria: np.array
+) -> tuple[np.array, pd.DataFrame]:
+
+    edges_mcda = edges[metric_keys].dropna(how='any')
+    edges_mcda_norm = normalize_minmax(edges_mcda, metric_keys)
+
+    invert_columns = [
+        "AirPolutantConcentration", "MotorisedVehicleCount", "SpeedLimit", 'CarLaneCount',
+        "MotorisedTrafficSpeed", "Slope", 'DistanceToTransitFacility', 'BetweenessCentrality',
+        'NodeDegree'
+    ]
+    invert_columns_present = [col for col in invert_columns if col in edges_mcda_norm.columns]
+    edges_mcda_norm[invert_columns_present] = 1 - edges_mcda_norm[invert_columns_present]
+
+    n = len(criteria_keys)
+    m = len(metric_keys)
+    r = len(edges_mcda_norm)
+    supermatrix = np.zeros((n + m + r, n + m + r))
+
+    edge_row_names = [f"{i}" for i in edges_mcda_norm.index]
+    row_col_names = list(criteria_keys) + list(metric_keys) + edge_row_names
+
+    supermatrix[:n, :n] = criteria_matrix
+    supermatrix[n:n + m, :n] = criteria_to_metric
+    supermatrix[:n, n:n + m] = metric_to_criteria
+    supermatrix[n:n + m, n:n + m] = metric_matrix
+    supermatrix[n + m:n + m + r, n:n + m] = edges_mcda_norm.values
+    supermatrix[n + m:n + m + r, n + m:n + m + r] = np.identity(r)
+
+    supermatrix_df = pd.DataFrame(supermatrix, index=row_col_names, columns=row_col_names)
+    norm_supermatrix_df = supermatrix_df.div(supermatrix_df.sum(axis=0, skipna=True), axis=1)
+    norm_supermatrix_df.fillna(0, inplace=True)
+    limit_matrix_df = calculate_limit_matrix(norm_supermatrix_df, row_col_names)
+
+    edge_rankings = limit_matrix_df.loc[edge_row_names, :].iloc[:, :n + m].mean(axis=1)
+    edge_rankings /= edge_rankings.sum()
+    edge_rankings.index = edges_mcda_norm.index
+    bikeability_index = edge_rankings.fillna(0)
+
+    return bikeability_index, limit_matrix_df
+
+
+def normalize_minmax(df, columns):
+    def minmax_safe(x):
+        range_ = x.max() - x.min()
+        if range_ == 0:
+            return pd.Series(1, index=x.index)  # constant column
+        return (x - x.min()) / range_
+
+    return df[columns].apply(minmax_safe)
+
+
+def calculate_limit_matrix(
+        matrix: pd.DataFrame,
+        row_col_names: list,
+        max_iter: int = 500,
+        tol: float = 1e-6
+) -> Union[NDArray, DataFrame]:
+
+    # Convert the input matrix to a sparse matrix
+    sparse_matrix = csr_matrix(matrix)
+    prev_matrix = sparse_matrix.copy()
+
+    for i in range(max_iter):
+        next_matrix = prev_matrix @ sparse_matrix  # Sparse matrix multiplication
+        if sparse_norm(next_matrix - prev_matrix, ord='fro') < tol:
+            print(f"Converged in {i + 1} iterations.")
+            return pd.DataFrame(next_matrix.toarray(), index=row_col_names, columns=row_col_names)
+        prev_matrix = next_matrix
+
+    print("WARNING: Limit matrix did not fully converge.")
+    return pd.DataFrame(next_matrix.toarray(), index=row_col_names, columns=row_col_names)
+
+
+def filter_metrics(
+        metrics: pd.DataFrame,
+        occurrence: int,
+        remove_columns: list
+) -> pd.DataFrame:
+
+    filtered_metrics = metrics[~metrics['criteria_type'].isna()]
+    metric_n = filtered_metrics['metric_type'].value_counts()
+    filtered_metrics = filtered_metrics[filtered_metrics['metric_type'].isin(metric_n[metric_n >= occurrence].index)]
+    filtered_metrics = filtered_metrics[~filtered_metrics['metric_type'].str.contains('Perceived')]
+    filtered_metrics = filtered_metrics[~filtered_metrics['metric_type'].isin(remove_columns)]
+
+    return filtered_metrics
