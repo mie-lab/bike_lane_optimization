@@ -31,7 +31,8 @@ def get_database_connector(dblogin_file: str):
 
 def get_expected_time_linear(nr_variables: int, coef=2.17235844e-05, intercept=-15.15954725242839):
     """Fit linear function to runtime from number of variables"""
-    return nr_variables * coef + intercept
+    # return at least 1 and otherwise the computed value
+    return max([1, nr_variables * coef + intercept])
 
 
 def get_expected_time(nr_variables: int):

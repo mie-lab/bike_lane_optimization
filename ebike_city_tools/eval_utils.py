@@ -700,7 +700,20 @@ def merge_spatial_share(
     return edges
 
 
+def fill_na_with_missing(df):
+    """Fill NaNs with MISSING"""
+    if df.isnull().values.any():
+        for col in df.select_dtypes(include="category").columns:
+            if "MISSING" not in df[col].cat.categories:
+                df[col] = df[col].cat.add_categories(["MISSING"])
+        df = df.fillna("MISSING")
+    return df
+
+
 def write_baseline_evals_to_db(edges, run_id, project_id, eval_type, connector, schema, table_name="baseline_evals"):
+    # fill nans with "Missing"
+    edges = fill_na_with_missing(edges)
+
     eval_edges = edges[['source', 'target']].copy()
     eval_edges.loc[:, "id_run"] = run_id
     eval_edges.loc[:, "id_prj"] = project_id

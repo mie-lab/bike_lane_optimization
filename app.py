@@ -2,6 +2,7 @@ import os
 import geopandas as gpd
 import networkx as nx
 import pandas as pd
+import traceback
 from flask import Flask, jsonify, request
 from flask_cors import CORS, cross_origin  # needs to be installed via pip install flask-cors
 import logging
@@ -24,7 +25,7 @@ from ebike_city_tools.app_utils import (
     compute_nr_variables,
     recreate_lane_graph,
     get_degree_ratios,
-    get_network_bearings, recreate_lane_graph_df,
+    get_network_bearings, recreate_lane_graph_df, fill_na_with_missing
 )
 from ebike_city_tools.metrics import compute_travel_times_in_graph
 from ebike_city_tools.eval_utils import calculate_bci, calculate_bsl, calculate_lts, calculate_blos, \
@@ -143,8 +144,8 @@ print("Loaded contextual data for Zurich:\n" + overview)
 def get_anp_evaluation():
     try:
         connector = get_database_connector(DB_LOGIN_PATH)
-        project_id = 207
-        run_id = 1
+        project_id = int(request.args.get("project_id"))
+        run_id = request.args.get("run_name")
 
         project_edges = pd.read_sql(f"SELECT * FROM {SCHEMA}.edges WHERE id_prj = {project_id}", connector)
         run_output = pd.read_sql(
@@ -207,8 +208,9 @@ def get_bci_evaluation():
                                   SPEED_COL)
         bci_db = write_baseline_evals_to_db(edges_bci, run_id, project_id, 'bci', connector, SCHEMA)
 
-        return jsonify({"edges_bci": bci_db.to_dict(orient='records')}), 200
+        return jsonify({"edges_bci": bci_db.where(pd.notnull(bci_db), None).to_dict(orient='records')}), 200
     except Exception as e:
+        traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
 
@@ -236,8 +238,9 @@ def get_bsl_evaluation():
                                   )
         bsl_db = write_baseline_evals_to_db(edges_bsl, run_id, project_id, 'bsl', connector, SCHEMA)
 
-        return jsonify({"edges_bsl": bsl_db.to_dict(orient='records')}), 200
+        return jsonify({"edges_bsl": bsl_db.where(pd.notnull(bsl_db), None).to_dict(orient='records')}), 200
     except Exception as e:
+        traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
 
@@ -264,8 +267,9 @@ def get_lts_evaluation():
                                   )
         lts_db = write_baseline_evals_to_db(edges_lts, run_id, project_id, 'lts', connector, SCHEMA)
 
-        return jsonify({"edges_lts": lts_db.to_dict(orient='records')}), 200
+        return jsonify({"edges_lts": lts_db.where(pd.notnull(lts_db), None).to_dict(orient='records')}), 200
     except Exception as e:
+        traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
 
@@ -295,8 +299,9 @@ def get_blos_evaluation():
                                     )
         blos_db = write_baseline_evals_to_db(edges_blos, run_id, project_id, 'blos_grade', connector, SCHEMA)
 
-        return jsonify({"edges_blos": blos_db.to_dict(orient='records')}), 200
+        return jsonify({"edges_blos": blos_db.where(pd.notnull(blos_db), None).to_dict(orient='records')}), 200
     except Exception as e:
+        traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
 
@@ -328,8 +333,9 @@ def get_porter_evaluation():
         )
         porter_db = write_baseline_evals_to_db(edges_porter, run_id, project_id, 'porter', connector, SCHEMA)
 
-        return jsonify({"edges_porter": porter_db.to_dict(orient='records')}), 200
+        return jsonify({"edges_porter": porter_db.where(pd.notnull(porter_db), None).to_dict(orient='records')}), 200
     except Exception as e:
+        traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
 
@@ -367,8 +373,9 @@ def get_weikl_evaluation():
         )
         weikl_db = write_baseline_evals_to_db(edges_weikl, run_id, project_id, 'weikl', connector, SCHEMA)
 
-        return jsonify({"edges_weikl": weikl_db.to_dict(orient='records')}), 200
+        return jsonify({"edges_weikl": weikl_db.where(pd.notnull(weikl_db), None).to_dict(orient='records')}), 200
     except Exception as e:
+        traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
 
@@ -761,10 +768,10 @@ def get_network_bearing():
 
         lane_graph = recreate_lane_graph(project_edges, run_output)
 
-        xs = {nodes_zurich.loc[i, "osmid"]: nodes_zurich.loc[i, "x"] for i in nodes_zurich.index}
+        xs = {nodes_zurich.loc[i, "osmid"]: float(nodes_zurich.loc[i, "x"]) for i in nodes_zurich.index}
         nx.set_node_attributes(lane_graph, xs, "x")
 
-        ys = {nodes_zurich.loc[i, "osmid"]: nodes_zurich.loc[i, "y"] for i in nodes_zurich.index}
+        ys = {nodes_zurich.loc[i, "osmid"]: float(nodes_zurich.loc[i, "y"]) for i in nodes_zurich.index}
         nx.set_node_attributes(lane_graph, ys, "y")
 
         lane_graph.graph["crs"] = 4326
@@ -778,6 +785,7 @@ def get_network_bearing():
         )
 
     except Exception as e:
+        traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
 
