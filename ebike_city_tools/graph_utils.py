@@ -34,6 +34,87 @@ def load_nodes_edges_dataframes(
     return street_graph_nodes, street_graph_edges
 
 
+def lane_to_snman_street_graph(edges_in):
+    """Transform lane graph edges to street graph edges in SNMAN format"""
+    edges = edges_in.copy()
+    # assign u and v just as the lower and higher node id
+    edges["u"] = edges[["source", "target"]].min(axis=1)
+    edges["v"] = edges[["source", "target"]].max(axis=1)
+    # set directional > < indicator
+    edges["direction"] = edges["lanetype"] + edges.apply(
+        lambda row: ">" if row["source"] < row["target"] else "<", axis=1
+    )
+    edges["gradient"] = edges["gradient"] * (-1) * ((edges["target"] < edges["source"]).astype(int) * 2 - 1)
+
+    def combine_groups(grouped_df):
+        """Takes all rows for one street and combines them"""
+        combined = grouped_df.iloc[0]
+        combined["lanetype"] = " | ".join(grouped_df["direction"])
+        return combined
+
+    # combine streets into one row each
+    street_edges = edges.groupby(["u", "v"]).apply(combine_groups)
+    # rename and reduce to necessary attributes
+    street_edges = street_edges.rename(
+        {"lanetype": "ln_desc_after", "speed_limit": "maxspeed", "distance": "length"}, axis=1
+    )
+    return street_edges[["ln_desc_after", "maxspeed", "length", "gradient"]].reset_index()
+
+
+def update_ln_desc_after(row):
+    """Update the snman graph after optimization with missing lane information from the original zurich graph."""
+    ln_desc_tokens = [token.strip() for token in row['ln_desc'].split('|') if token.strip()]
+    ln_after_tokens = [token.strip() for token in row['ln_desc_after'].split('|') if token.strip()]
+
+    def add_tokens(token_list, condition_token=None):
+        for token in token_list:
+            if token in ln_desc_tokens and token not in ln_after_tokens:
+                if condition_token is None or condition_token not in ln_after_tokens:
+                    ln_after_tokens.append(token)
+
+    # Append missing public transit tokens
+    add_tokens(['T<', 'T>'])
+
+    # Append missing parking tokens
+    add_tokens(['R-', 'R-10', 'R-12', 'R-14', 'R-16', 'R-22', 'R-4', 'R-6', 'R-8'])
+
+    # Append missing bike lane tokens (forward and backward)
+    bike_forward_tokens = [
+        'L>', 'L>0.7000000000000002', 'L>1.4000000000000004', 'L>1.85', 'L>1.9500000000000002',
+        'L>2.0', 'L>2.15', 'L>2.2', 'L>2.25', 'L>2.35', 'L>2.5', 'L>2.6', 'L>3.0'
+    ]
+    bike_backward_tokens = [
+        'L<', 'L<0.7000000000000002', 'L<1.85', 'L<1.9500000000000002', 'L<2.0', 'L<2.15',
+        'L<2.2', 'L<2.25', 'L<2.35', 'L<2.5', 'L<2.6', 'L<3.0'
+    ]
+    add_tokens(bike_forward_tokens, condition_token='P>')
+    add_tokens(bike_backward_tokens, condition_token='P>')
+
+    return " | ".join(ln_after_tokens)
+
+
+def get_enriched_street_graph(lane_graph, zurich_edges):
+    """from lane graph, create street graph and enrich it with missing columns from the full zurich edge dataset."""
+
+    # Convert the lane graph into the street graph.
+    street_graph = lane_to_snman_street_graph(lane_graph)
+    print(street_graph.columns)
+
+    # Extract the missing evaluation columns from zurich_edges.
+    missing_eval_columns = zurich_edges.reset_index()[[
+        'u', 'v', 'ln_desc_width_cycling_m', 'ln_desc_width_motorized_m',
+        'width', 'ln_desc', 'geometry'
+    ]]
+
+    street_graph = street_graph.merge(missing_eval_columns, on=['u', 'v'], how='left')
+    street_graph['ln_desc_after'] = street_graph.apply(update_ln_desc_after, axis=1)
+    street_graph = gpd.GeoDataFrame(street_graph, geometry='geometry')
+    street_graph = street_graph.rename(columns={'u': 'source', 'v': 'target'})
+    street_graph['index'] = street_graph.index
+
+    return street_graph
+
+
 def load_lane_graph(
     path: str,
     edge_fn: str = "edges_all_attributes.gpkg",

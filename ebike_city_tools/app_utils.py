@@ -89,7 +89,7 @@ def generate_od_geometry(area_polygon: gpd.GeoDataFrame, trips_microcensus: gpd.
     return od_in_area
 
 
-def recreate_lane_graph(project_edges: pd.DataFrame, run_output: pd.DataFrame):
+def recreate_lane_graph_df(project_edges: pd.DataFrame, run_output: pd.DataFrame):
     """Auxiliary method to create the graph from the project edges and the output of one run"""
     # set index
     project_edges["edge_key"] = project_edges["edge_key"].astype(str)
@@ -127,7 +127,13 @@ def recreate_lane_graph(project_edges: pd.DataFrame, run_output: pd.DataFrame):
     # add bike and car time attributes
     total_edges["bike_time"] = total_edges.apply(compute_edgedependent_bike_time, axis=1)
     total_edges["car_time"] = total_edges.apply(compute_car_time, axis=1)
+    return total_edges
 
+
+def recreate_lane_graph(project_edges: pd.DataFrame, run_output: pd.DataFrame):
+    """Take edges from lane graph and the modified lanes and combine."""
+    total_edges = recreate_lane_graph_df(project_edges, run_output)
+    # transform to nx graph
     lane_graph = nx.from_pandas_edgelist(
         total_edges,
         edge_key="edge_key",
@@ -135,6 +141,7 @@ def recreate_lane_graph(project_edges: pd.DataFrame, run_output: pd.DataFrame):
         create_using=nx.MultiDiGraph,
     )
     return lane_graph
+
 
 ### complexity ###
 def get_mode_subgraph(lane_graph, mode):
