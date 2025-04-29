@@ -170,7 +170,11 @@ def get_degree_ratios(lane_graph, mode):
 ## bearing ###
 # bearing of a direct vector between OD ('as crow flies' line).
 def calculate_path_bearing(node1, node2):
-    return calculate_bearing(node1['x'], node1['y'], node2['x'], node2['y'])
+    return calculate_bearing(
+        float(node1['x']), float(node1['y']),
+        float(node2['x']), float(node2['y'])
+    )
+
 
 # individual edge deviations for path.
 def average_path_deviation(G, path):
@@ -193,24 +197,56 @@ def get_network_bearings(lane_graph, mode, weight=None):
     Calculates and returns the average deviation of all shortest path edges from the direct bearing
     between nodes in a specified mode subgraph of a transportation network.
     """
-    G = get_mode_subgraph(lane_graph, mode)
+    print(f"Starting get_network_bearings for mode: {mode}, weight: {weight}")
 
-    G = add_edge_bearings(G)  
+    try:
+        G = get_mode_subgraph(lane_graph, mode)
+        print("Got mode subgraph")
 
-    all_pairs_sp = nx.all_pairs_dijkstra_path(G, weight=weight)
-    total_path_deviation = 0
-    path_count = 0
-                
-    for start, paths in all_pairs_sp:
-        for end, path in paths.items():
-            if start == end and len(path) <= 2:
-                continue
-            
-            average_deviation = average_path_deviation(G, path)
-            total_path_deviation += average_deviation
-            path_count += 1            
+        print("Casting node coordinates to float...")
+        for node_id, node_data in G.nodes(data=True):
+            try:
+                node_data['x'] = float(node_data['x'])
+                node_data['y'] = float(node_data['y'])
+            except Exception as e:
+                print(f"Error converting coordinates for node {node_id}: {node_data}")
+                raise
 
-    return total_path_deviation / path_count
+        print("Calling add_edge_bearings...")
+        G = add_edge_bearings(G)
+        print("Successfully added edge bearings")
+
+        print("Running all_pairs_dijkstra_path...")
+        all_pairs_sp = nx.all_pairs_dijkstra_path(G, weight=weight)
+        total_path_deviation = 0
+        path_count = 0
+
+        for start, paths in all_pairs_sp:
+            for end, path in paths.items():
+                if start == end and len(path) <= 2:
+                    continue
+
+                try:
+                    average_deviation = average_path_deviation(G, path)
+                except Exception as e:
+                    print(f"Error computing deviation for path from {start} to {end}: {path}")
+                    raise
+
+                total_path_deviation += average_deviation
+                path_count += 1
+
+        if path_count == 0:
+            print("No valid paths found.")
+            return 0
+
+        print("Finished successfully.")
+        return total_path_deviation / path_count
+
+    except Exception as e:
+        print("\n=== Exception occurred in get_network_bearings ===")
+        import traceback
+        traceback.print_exc()
+        raise
 
 
 def zurich_to_database(

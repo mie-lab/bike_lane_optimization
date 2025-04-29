@@ -121,8 +121,8 @@ print("Loaded contextual data for Zurich:\n" + overview)
 def get_bci_evaluation():
     try:
         connector = get_database_connector(DB_LOGIN_PATH)
-        project_id = 203 #int(request.args.get("project_id"))
-        run_id = 1 #request.args.get("run_name")
+        project_id = 203
+        run_id = 1
 
         project_edges = pd.read_sql(f"SELECT * FROM {SCHEMA}.edges WHERE id_prj = {project_id}", connector)
         run_output = pd.read_sql(
@@ -142,10 +142,18 @@ def get_bci_evaluation():
                                   context_datasets['speed_limits'],
                                   SPEED_COL)
 
+        if edges_bci.isnull().values.any():
+            for col in edges_bci.select_dtypes(include="category").columns:
+                if "MISSING" not in edges_bci[col].cat.categories:
+                    edges_bci[col] = edges_bci[col].cat.add_categories(["MISSING"])
+            edges_bci = edges_bci.fillna("MISSING")
+
         bci_db = write_baseline_evals_to_db(edges_bci, run_id, project_id, 'bci', connector, SCHEMA)
 
-        return jsonify({"edges_bci": bci_db.to_dict(orient='records')}), 200
+        return jsonify({"edges_bci": bci_db.where(pd.notnull(bci_db), None).to_dict(orient='records')}), 200
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
 
@@ -169,13 +177,20 @@ def get_bsl_evaluation():
                                   context_datasets['speed_limits'],
                                   SPEED_COL,
                                   context_datasets['traffic_volume'],
-                                  TRAFFIC_COL
-                                  )
+                                  TRAFFIC_COL)
+
+        if edges_bsl.isnull().values.any():
+            for col in edges_bsl.select_dtypes(include="category").columns:
+                if "MISSING" not in edges_bsl[col].cat.categories:
+                    edges_bsl[col] = edges_bsl[col].cat.add_categories(["MISSING"])
+            edges_bsl = edges_bsl.fillna("MISSING")
 
         bsl_db = write_baseline_evals_to_db(edges_bsl, run_id, project_id, 'bsl', connector, SCHEMA)
 
-        return jsonify({"edges_bsl": bsl_db.to_dict(orient='records')}), 200
+        return jsonify({"edges_bsl": bsl_db.where(pd.notnull(bsl_db), None).to_dict(orient='records')}), 200
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
 
@@ -198,13 +213,20 @@ def get_lts_evaluation():
                                   context_datasets['speed_limits'],
                                   SPEED_COL,
                                   context_datasets['traffic_volume'],
-                                  TRAFFIC_COL
-                                  )
+                                  TRAFFIC_COL)
+
+        if edges_lts.isnull().values.any():
+            for col in edges_lts.select_dtypes(include="category").columns:
+                if "MISSING" not in edges_lts[col].cat.categories:
+                    edges_lts[col] = edges_lts[col].cat.add_categories(["MISSING"])
+            edges_lts = edges_lts.fillna("MISSING")
 
         lts_db = write_baseline_evals_to_db(edges_lts, run_id, project_id, 'lts', connector, SCHEMA)
 
-        return jsonify({"edges_lts": lts_db.to_dict(orient='records')}), 200
+        return jsonify({"edges_lts": lts_db.where(pd.notnull(lts_db), None).to_dict(orient='records')}), 200
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
 
@@ -222,21 +244,38 @@ def get_blos_evaluation():
         lane_graph = recreate_lane_graph_df(project_edges, run_output)
         street_graph = get_enriched_street_graph(lane_graph, zurich_edges)
 
-        edges_blos = calculate_blos(street_graph,
-                                    BIKELANE_COL,
-                                    context_datasets['traffic_volume'],
-                                    TRAFFIC_COLS,
-                                    MOTORIZED_WIDTH_COL,
-                                    context_datasets['speed_limits'],
-                                    SPEED_COL,
-                                    context_datasets['surface'],
-                                    SURFACE_COL
-                                    )
+        edges_blos = calculate_blos(
+            street_graph,
+            BIKELANE_COL,
+            context_datasets['traffic_volume'],
+            TRAFFIC_COLS,
+            MOTORIZED_WIDTH_COL,
+            context_datasets['speed_limits'],
+            SPEED_COL,
+            context_datasets['surface'],
+            SURFACE_COL
+        )
+
+        if edges_blos.isnull().values.any():
+            print("Found NaNs in edges_blos:")
+            print(edges_blos[edges_blos.isnull().any(axis=1)])
+
+            for col in edges_blos.select_dtypes(include="category").columns:
+                if "MISSING" not in edges_blos[col].cat.categories:
+                    edges_blos[col] = edges_blos[col].cat.add_categories(["MISSING"])
+
+            edges_blos = edges_blos.fillna("MISSING")
+
         blos_db = write_baseline_evals_to_db(edges_blos, run_id, project_id, 'blos_grade', connector, SCHEMA)
 
-        return jsonify({"edges_blos": blos_db.to_dict(orient='records')}), 200
+        return jsonify({"edges_blos": blos_db.where(pd.notnull(blos_db), None).to_dict(orient='records')}), 200
+
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return jsonify({"error": str(e)}), 500
+
+
 
 
 @app.route("/get_porter", methods=["GET"])
@@ -265,10 +304,19 @@ def get_porter_evaluation():
             context_datasets['air_quality'],
             AIR_COL
         )
+
+        if edges_porter.isnull().values.any():
+            for col in edges_porter.select_dtypes(include="category").columns:
+                if "MISSING" not in edges_porter[col].cat.categories:
+                    edges_porter[col] = edges_porter[col].cat.add_categories(["MISSING"])
+            edges_porter = edges_porter.fillna("MISSING")
+
         porter_db = write_baseline_evals_to_db(edges_porter, run_id, project_id, 'porter', connector, SCHEMA)
 
-        return jsonify({"edges_porter": porter_db.to_dict(orient='records')}), 200
+        return jsonify({"edges_porter": porter_db.where(pd.notnull(porter_db), None).to_dict(orient='records')}), 200
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
 
@@ -304,11 +352,21 @@ def get_weikl_evaluation():
             context_datasets['air_quality'],
             AIR_COL
         )
+
+        if edges_weikl.isnull().values.any():
+            for col in edges_weikl.select_dtypes(include="category").columns:
+                if "MISSING" not in edges_weikl[col].cat.categories:
+                    edges_weikl[col] = edges_weikl[col].cat.add_categories(["MISSING"])
+            edges_weikl = edges_weikl.fillna("MISSING")
+
         weikl_db = write_baseline_evals_to_db(edges_weikl, run_id, project_id, 'weikl', connector, SCHEMA)
 
-        return jsonify({"edges_weikl": weikl_db.to_dict(orient='records')}), 200
+        return jsonify({"edges_weikl": weikl_db.where(pd.notnull(weikl_db), None).to_dict(orient='records')}), 200
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return jsonify({"error": str(e)}), 500
+
 
 
 @app.route("/construct_graph", methods=["POST"])
@@ -599,7 +657,7 @@ def optimize():
                 t1.geometry
             FROM run_opt t1
             LEFT JOIN edges t2 ON t1.source = t2.source AND t1.target = t2.target;
-            GRANT ALL ON webapp.v_optimized TO postgres, selina, mbauckhage;
+            GRANT ALL ON webapp.v_optimized TO postgres, selina, mbauckhage, lehaas;
             """
         )
         session.commit()
@@ -720,18 +778,24 @@ def get_complexity():
 
 @app.route("/get_network_bearing", methods=["GET"])
 def get_network_bearing():
+    print("==> ENTERED get_network_bearing")
+
     try:
         connector = get_database_connector(DB_LOGIN_PATH)
+        print("Connected to database")
+
         project_id = int(request.args.get("project_id"))
         run_id = request.args.get("run_name")
+        print(f"Parsed parameters: project_id={project_id}, run_id={run_id}")
 
         project_edges = pd.read_sql(f"SELECT * FROM {SCHEMA}.edges WHERE id_prj = {project_id}", connector)
-        # project_od = pd.read_sql(f"SELECT * FROM {SCHEMA}.od WHERE id_prj = {project_id}", connector)
+        print(f"Loaded {len(project_edges)} project_edges")
+
         run_output = pd.read_sql(
             f"SELECT * FROM {SCHEMA}.runs_optimized WHERE id_prj = {project_id} AND id_run = {run_id}", connector
         )
+        print(f"Loaded {len(run_output)} run_output rows")
 
-        # load nodes from database
         nodes_zurich = pd.read_sql(
             f"""
             SELECT z.osmid, z.x, z.y
@@ -741,26 +805,43 @@ def get_network_bearing():
             """,
             connector,
         )
+        print(f"Loaded {len(nodes_zurich)} nodes_zurich")
 
         lane_graph = recreate_lane_graph(project_edges, run_output)
+        print("Recreated lane_graph")
 
-        xs = {nodes_zurich.loc[i, "osmid"]: nodes_zurich.loc[i, "x"] for i in nodes_zurich.index}
+        xs = {nodes_zurich.loc[i, "osmid"]: float(nodes_zurich.loc[i, "x"]) for i in nodes_zurich.index}
         nx.set_node_attributes(lane_graph, xs, "x")
+        print("Set x attributes")
 
-        ys = {nodes_zurich.loc[i, "osmid"]: nodes_zurich.loc[i, "y"] for i in nodes_zurich.index}
+        ys = {nodes_zurich.loc[i, "osmid"]: float(nodes_zurich.loc[i, "y"]) for i in nodes_zurich.index}
         nx.set_node_attributes(lane_graph, ys, "y")
+        print("Set y attributes")
 
         lane_graph.graph["crs"] = 4326
+        print("Set graph CRS")
 
+        print("Calling get_network_bearings for bikes...")
         bike_network_bearings = get_network_bearings(lane_graph, "P", "distance")
-        car_network_bearings = get_network_bearings(lane_graph, "M", "distance")
+        print(f"Bike network bearings: {bike_network_bearings}")
 
+        print("Calling get_network_bearings for cars...")
+        car_network_bearings = get_network_bearings(lane_graph, "M", "distance")
+        print(f"Car network bearings: {car_network_bearings}")
+
+        print("Returning response")
         return (
-            jsonify({"bike_network_bearings": bike_network_bearings, "car_network_bearings": car_network_bearings}),
+            jsonify({
+                "bike_network_bearings": bike_network_bearings,
+                "car_network_bearings": car_network_bearings
+            }),
             200,
         )
 
     except Exception as e:
+        import traceback
+        print("\n=== ERROR in get_network_bearing ===")
+        traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
 
@@ -785,6 +866,8 @@ def get_runs():
         return jsonify({"runs": runs_json}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+    
+
 
 
 @app.route("/create_view", methods=["POST"])
@@ -838,7 +921,7 @@ def create_view():
                 t1.geometry
             FROM run_opt t1
             LEFT JOIN edges t2 ON t1.source = t2.source AND t1.target = t2.target;
-            GRANT ALL ON webapp.v_optimized TO postgres, selina, mbauckhage;
+            GRANT ALL ON webapp.v_optimized TO postgres, selina, mbauckhage, lehaas;
             """
             cursor.execute(sql_statement)
             session.commit()
@@ -858,7 +941,7 @@ def create_view():
                 FROM webapp.bounds
                 WHERE bounds.id_prj = {project_id}
                 GROUP BY id, id_prj;
-                GRANT ALL ON webapp.v_bound TO postgres, selina, mbauckhage;
+                GRANT ALL ON webapp.v_bound TO postgres, selina, mbauckhage, lehaas;
                 
                 SELECT bbox_east, bbox_south, bbox_west, bbox_north
                 FROM webapp.v_bound
@@ -889,6 +972,72 @@ def create_view():
         else:
             return jsonify({"message": f"View created successfully"}), 200
 
+@app.route("/check_eval_metric_exists", methods=["GET"])
+def check_eval_metric_exists():
+    try:
+        connector = get_database_connector(DB_LOGIN_PATH)
+        project_id = int(request.args.get("project_id"))
+        run_id = int(request.args.get("run_id"))
+        metric_key = request.args.get("metric_key")
+
+        query = f"""
+            SELECT 1
+            FROM {SCHEMA}.baseline_evals
+            WHERE id_prj = {project_id}
+              AND id_run = {run_id}
+              AND eval_type = '{metric_key}'
+            LIMIT 1;
+        """
+
+        result = pd.read_sql(query, connector)
+        exists = not result.empty
+        return jsonify({"exists": exists}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    
+@app.route("/getBoundingBox", methods=["GET"])
+def get_bounding_box():
+    project_id = request.args.get("project_id")
+    bbox_params = None  # Initialize bbox_params to None
+
+    session = None
+
+    sql_statement = f"""
+        SELECT bbox_east, bbox_south, bbox_west, bbox_north
+        FROM webapp.v_bound
+        WHERE id_prj = {project_id};"""
+
+    try:
+        connector = get_database_connector(DB_LOGIN_PATH)
+        Session = sessionmaker(bind=connector)
+        session = Session()
+        cursor = session.connection().connection.cursor()
+
+        cursor.execute(sql_statement)
+
+        bbox_result = cursor.fetchone()
+        if bbox_result:
+            bbox_params = {
+                "bbox_east": bbox_result[0],
+                "bbox_south": bbox_result[1],
+                "bbox_west": bbox_result[2],
+                "bbox_north": bbox_result[3],
+            }
+    except Exception as e:
+        if session:
+            session.rollback()
+        return jsonify({"error": f"Failed to get Bounding Box: {str(e)}"}), 500
+    finally:
+        if session:
+            session.close()
+
+        if bbox_params:
+            return jsonify({"message": "Bounding box retrieved successfully", "bounding_box": bbox_params}), 200
+        else:
+            return jsonify({"message": "No bounding box found"}), 200
+
+def create_app():
+    return app
 
 if __name__ == "__main__":
     # run
