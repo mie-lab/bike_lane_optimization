@@ -2,6 +2,7 @@ import os
 import geopandas as gpd
 import networkx as nx
 import pandas as pd
+import numpy as np
 import traceback
 from flask import Flask, jsonify, request
 from flask_cors import CORS, cross_origin  # needs to be installed via pip install flask-cors
@@ -811,6 +812,28 @@ def get_runs():
         runs_json = runs.to_dict(orient="records")
         return jsonify({"runs": runs_json}), 200
 
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/check_eval_metric_exists", methods=["GET"])
+def check_eval_metric_exists():
+    try:
+        connector = get_database_connector(DB_LOGIN_PATH)
+        project_id = int(request.args.get("project_id"))
+        run_id = int(request.args.get("run_id"))
+        metric_key = request.args.get("metric_key")
+        query = f"""
+            SELECT 1
+            FROM {SCHEMA}.baseline_evals
+            WHERE id_prj = {project_id}
+              AND id_run = {run_id}
+              AND eval_type = '{metric_key}'
+            LIMIT 1;
+        """
+        result = pd.read_sql(query, connector)
+        exists = not result.empty
+        return jsonify({"exists": exists}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
