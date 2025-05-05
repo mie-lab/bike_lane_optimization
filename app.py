@@ -26,7 +26,7 @@ from ebike_city_tools.app_utils import (
     compute_nr_variables,
     recreate_lane_graph,
     get_degree_ratios,
-    get_network_bearings, recreate_lane_graph_df, fill_na_with_missing
+    get_network_bearings, recreate_lane_graph_df 
 )
 from ebike_city_tools.metrics import compute_travel_times_in_graph
 from ebike_city_tools.eval_utils import calculate_bci, calculate_bsl, calculate_lts, calculate_blos, \
@@ -34,7 +34,7 @@ from ebike_city_tools.eval_utils import calculate_bci, calculate_bsl, calculate_
     merge_spatial_attribute, calculate_bikelane_density, merge_spatial_share, merge_spatial_count, avg_no2, \
     count_characters, calculate_land_use_mix, merge_spatial_boolean, calculate_count, calculate_bike_lane_presence, \
     merge_distance_to_nearest, calculate_bike_and_car_travel_time, calculate_intersection_density, enrich_network, \
-    get_edge_ranking, filter_metrics, write_anp_weights_to_db
+    get_edge_ranking, filter_metrics, write_anp_weights_to_db, fill_na_with_missing
 
 # Set to True if you want to use the Database - otherwise, everything will just be saved in a dictionary
 DB_LOGIN_PATH = os.path.join(os.path.dirname(__file__), "dblogin_ikgpgis.json")
