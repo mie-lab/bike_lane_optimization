@@ -791,6 +791,7 @@ def get_network_bearing():
 
 
 @app.route("/get_projects", methods=["GET"])
+@cross_origin(origin="https://ebikecity.webapp.ethz.ch")
 def get_projects():
     try:
         connector = get_database_connector(DB_LOGIN_PATH)
