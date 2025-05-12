@@ -13,3 +13,4 @@ mip==1.14.2 # not clear
 shapely==2.0.1
 osmnx==1.9.3
 numpy==1.24.3
+scikit-learn==1.4.2

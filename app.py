@@ -182,6 +182,48 @@ def get_anp_evaluation():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+@app.route("/get_anp_weights", methods=["GET"])
+def get_anp_weights():
+    try:
+        connector = get_database_connector(DB_LOGIN_PATH)
+        project_id = int(request.args.get("project_id"))
+        run_id = int(request.args.get("run_id"))
+        show_all = request.args.get("show_all", "false").lower() == "true"
+
+        limit_clause = "" if show_all else "LIMIT 5"
+
+        query_criteria = f"""
+            SELECT metric_or_criteria, weight
+            FROM webapp.anp_weights
+            WHERE id_prj = {project_id}
+              AND id_run = {run_id}
+              AND eval_element = 'criterion'
+            ORDER BY weight DESC
+            {limit_clause}
+        """
+
+        query_metrics = f"""
+            SELECT metric_or_criteria, weight
+            FROM webapp.anp_weights
+            WHERE id_prj = {project_id}
+              AND id_run = {run_id}
+              AND eval_element = 'metric'
+            ORDER BY weight DESC
+            {limit_clause}
+        """
+
+        df_criteria = pd.read_sql(query_criteria, connector)
+        df_metrics = pd.read_sql(query_metrics, connector)
+
+        return jsonify({
+            "criteria": df_criteria.to_dict(orient="records"),
+            "metrics": df_metrics.to_dict(orient="records")
+        }), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 
 @app.route("/get_bci", methods=["GET"])
 def get_bci_evaluation():
@@ -791,7 +833,6 @@ def get_network_bearing():
 
 
 @app.route("/get_projects", methods=["GET"])
-@cross_origin(origin="https://ebikecity.webapp.ethz.ch")
 def get_projects():
     try:
         connector = get_database_connector(DB_LOGIN_PATH)
