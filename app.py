@@ -188,9 +188,11 @@ def get_anp_weights():
         connector = get_database_connector(DB_LOGIN_PATH)
         project_id = int(request.args.get("project_id"))
         run_id = int(request.args.get("run_id"))
-        show_all = request.args.get("show_all", "false").lower() == "true"
+        show_all_criteria = request.args.get("show_all_criteria", "false").lower() == "true"
+        show_all_metrics = request.args.get("show_all_metrics", "false").lower() == "true"
 
-        limit_clause = "" if show_all else "LIMIT 5"
+        limit_clause_criteria = "" if show_all_criteria else "LIMIT 5"
+        limit_clause_metrics = "" if show_all_metrics else "LIMIT 5"
 
         query_criteria = f"""
             SELECT metric_or_criteria, weight
@@ -199,7 +201,7 @@ def get_anp_weights():
               AND id_run = {run_id}
               AND eval_element = 'criterion'
             ORDER BY weight DESC
-            {limit_clause}
+            {limit_clause_criteria}
         """
 
         query_metrics = f"""
@@ -209,7 +211,7 @@ def get_anp_weights():
               AND id_run = {run_id}
               AND eval_element = 'metric'
             ORDER BY weight DESC
-            {limit_clause}
+            {limit_clause_metrics}
         """
 
         df_criteria = pd.read_sql(query_criteria, connector)
